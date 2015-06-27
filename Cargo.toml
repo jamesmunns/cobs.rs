@@ -8,7 +8,7 @@ description = """
     COBS is an algorithm for transforming a message into an encoding where a specific value
     (the "sentinel" value) is not used. This value can then be used to mark frame boundaries
     in a serial communication channel. """
-repository = "www.github.com/awelkie/cobs.rs"
+repository = "https://github.com/awelkie/cobs.rs"
 keywords = ["consistent", "overhead", "byte", "stuffing"]
 
 [dev-dependencies]

@@ -2,7 +2,7 @@ extern crate cobs;
 extern crate quickcheck;
 
 use quickcheck::{quickcheck, TestResult};
-use cobs::{max_encoding_length, encode, decode, encode_vec, decode_vec};
+use cobs::{max_encoding_length, encode, decode};
 use cobs::{encode_vec_with_sentinel, decode_vec_with_sentinel};
 
 fn test_pair(source: Vec<u8>, encoded: Vec<u8>) {

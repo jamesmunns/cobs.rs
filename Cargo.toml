@@ -2,6 +2,7 @@
 name = "cobs"
 version = "0.1.0"
 authors = ["Allen Welkie <>"]
+license = "MIT"
 
 [dev-dependencies]
 quickcheck = "*"

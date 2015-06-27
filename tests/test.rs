@@ -1,8 +1,9 @@
 extern crate cobs;
 extern crate quickcheck;
 
-use quickcheck::quickcheck;
+use quickcheck::{quickcheck, TestResult};
 use cobs::{max_encoding_length, encode, decode, encode_vec, decode_vec};
+use cobs::{encode_vec_with_sentinel, decode_vec_with_sentinel};
 
 fn test_pair(source: Vec<u8>, encoded: Vec<u8>) {
     let mut test_encoded = encoded.clone();
@@ -42,13 +43,29 @@ fn test_encode_4() {
     test_pair(vec![1], vec![2, 1])
 }
 
+fn identity(source: Vec<u8>, sentinel: u8) -> TestResult {
+    let encoded = encode_vec_with_sentinel(&source[..], sentinel);
+    match decode_vec_with_sentinel(&encoded[..], sentinel) {
+        Ok(decoded) => {
+            if source == decoded {
+                TestResult::passed()
+            } else {
+                TestResult::failed()
+            }
+        }
+        Err(_) => TestResult::error("Decoding Error"),
+    }
+}
+
+#[test]
+fn test_encode_decode_with_sentinel() {
+    quickcheck(identity as fn(Vec<u8>, u8) -> TestResult);
+}
+
 #[test]
 fn test_encode_decode() {
-    fn identity(source: Vec<u8>) -> bool {
-        match decode_vec(&encode_vec(&source[..])[..]) {
-            Ok(decoded) => decoded == source,
-            Err(_) => false,
-        }
+    fn identity_default_sentinel(source: Vec<u8>) -> TestResult {
+        identity(source, 0)
     }
-    quickcheck(identity as fn(Vec<u8>) -> bool);
+    quickcheck(identity_default_sentinel as fn(Vec<u8>) -> TestResult);
 }

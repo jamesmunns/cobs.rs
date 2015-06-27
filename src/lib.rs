@@ -1,14 +1,15 @@
-#![feature(no_std)]
-#[no_std]
-
-pub fn encode(source: &[u8], dest: &mut[u8]) {
+pub fn encode(source: &[u8], dest: &mut[u8]) -> usize {
     encode_with_sentinel(source, dest, 0)
 }
 
-pub fn encode_with_sentinel(source: &[u8], dest: &mut[u8], sentinel: u8) {
+pub fn encode_with_sentinel(source: &[u8], dest: &mut[u8], sentinel: u8) -> usize {
     let mut dest_index = 1;
     let mut code_index = 0;
     let mut num_between_sentinel = 1;
+
+    if source.is_empty() {
+        return 0;
+    }
 
     for x in source {
         if *x == sentinel {
@@ -28,6 +29,21 @@ pub fn encode_with_sentinel(source: &[u8], dest: &mut[u8], sentinel: u8) {
             }
         }
     }
+
+    dest[code_index] = num_between_sentinel;
+
+    return dest_index;
+}
+
+pub fn encode_vec(source: &[u8]) -> Vec<u8> {
+    encode_vec_with_sentinel(source, 0)
+}
+
+pub fn encode_vec_with_sentinel(source: &[u8], sentinel: u8) -> Vec<u8> {
+    let mut encoded = vec![0; max_encoding_length(source.len())];
+    let encoded_len = encode_with_sentinel(source, &mut encoded[..], sentinel);
+    encoded.truncate(encoded_len);
+    return encoded;
 }
 
 pub fn decode(source: &[u8], dest: &mut[u8]) -> Result<usize, ()> {
@@ -62,11 +78,22 @@ pub fn decode_with_sentinel(source: &[u8], dest: &mut[u8], sentinel: u8) -> Resu
     Ok(dest_index)
 }
 
-#[test]
-fn test_encode_1() {
-    let source = vec![10, 11, 0, 12];
-    let encoded = vec![3, 10, 11, 2, 12];
-    let mut test_encoded = encoded.clone();
-    encode(&source[..], &mut test_encoded[..]);
-    assert_eq!(encoded, test_encoded);
+pub fn decode_vec(source: &[u8]) -> Result<Vec<u8>, ()> {
+    decode_vec_with_sentinel(source, 0)
+}
+
+pub fn decode_vec_with_sentinel(source: &[u8], sentinel: u8) -> Result<Vec<u8>, ()> {
+    let mut decoded = vec![0; source.len()];
+    match decode_with_sentinel(source, &mut decoded[..], sentinel) {
+        Ok(n) => {
+            decoded.truncate(n);
+            Ok(decoded)
+        },
+        Err(()) => Err(()),
+    }
+}
+
+
+pub fn max_encoding_length(source_len: usize) -> usize {
+    source_len + (source_len / 254) + if source_len % 254 > 0 { 1 } else { 0 }
 }

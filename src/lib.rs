@@ -9,12 +9,6 @@
 /// encoded message. You can calculate the size the `dest` buffer needs to be with
 /// the `max_encoding_length` function.
 pub fn encode(source: &[u8], dest: &mut[u8]) -> usize {
-    encode_with_sentinel(source, dest, 0)
-}
-
-/// Encodes the `source` buffer into the `dest` buffer using an
-/// arbitrary sentinel value.
-pub fn encode_with_sentinel(source: &[u8], dest: &mut[u8], sentinel: u8) -> usize {
     let mut dest_index = 1;
     let mut code_index = 0;
     let mut num_between_sentinel = 1;
@@ -24,7 +18,7 @@ pub fn encode_with_sentinel(source: &[u8], dest: &mut[u8], sentinel: u8) -> usiz
     }
 
     for x in source {
-        if *x == sentinel {
+        if *x == 0 {
             dest[code_index] = num_between_sentinel;
             num_between_sentinel = 1;
             code_index = dest_index;
@@ -47,9 +41,27 @@ pub fn encode_with_sentinel(source: &[u8], dest: &mut[u8], sentinel: u8) -> usiz
     return dest_index;
 }
 
+/// Encodes the `source` buffer into the `dest` buffer using an
+/// arbitrary sentinel value.
+///
+/// This is done by first encoding the message with the typical sentinel value
+/// of 0, then XOR-ing each byte of the encoded message with the chosen sentinel
+/// value. This will ensure that the sentinel value doesn't show up in the encoded
+/// message. See the paper "Consistent Overhead Byte Stuffing" for details.
+pub fn encode_with_sentinel(source: &[u8], dest: &mut[u8], sentinel: u8) -> usize {
+    let encoded_size = encode(source, dest);
+    for x in &mut dest[..encoded_size] {
+        *x ^= sentinel;
+    }
+    return encoded_size;
+}
+
 /// Encodes the `source` buffer into a vector.
 pub fn encode_vec(source: &[u8]) -> Vec<u8> {
-    encode_vec_with_sentinel(source, 0)
+    let mut encoded = vec![0; max_encoding_length(source.len())];
+    let encoded_len = encode(source, &mut encoded[..]);
+    encoded.truncate(encoded_len);
+    return encoded;
 }
 
 /// Encodes the `source` buffer into a vector with an arbitrary sentinel value.
@@ -59,6 +71,37 @@ pub fn encode_vec_with_sentinel(source: &[u8], sentinel: u8) -> Vec<u8> {
     encoded.truncate(encoded_len);
     return encoded;
 }
+
+// This needs to be a macro because `src` and `dst` could be the same or different.
+macro_rules! decode_raw (
+    ($src:ident, $dst:ident) => ({
+        let mut source_index = 0;
+        let mut dest_index = 0;
+
+        while source_index < $src.len() {
+            let code = $src[source_index];
+
+            if source_index + code as usize > $src.len() && code != 1 {
+                return Err(());
+            }
+
+            source_index += 1;
+
+            for _ in (1..code) {
+                $dst[dest_index] = $src[source_index];
+                source_index += 1;
+                dest_index += 1;
+            }
+
+            if 0xFF != code && source_index < $src.len() {
+                $dst[dest_index] = 0;
+                dest_index += 1;
+            }
+        }
+
+        Ok(dest_index)
+    })
+);
 
 /// Decodes the `source` buffer into the `dest` buffer.
 ///
@@ -76,41 +119,47 @@ pub fn encode_vec_with_sentinel(source: &[u8], sentinel: u8) -> Vec<u8> {
 /// message, it may be a good idea to make the `dest` buffer as big as the
 /// `source` buffer.
 pub fn decode(source: &[u8], dest: &mut[u8]) -> Result<usize, ()> {
-    decode_with_sentinel(source, dest, 0)
+    decode_raw!(source, dest)
+}
+
+/// Decodes a message in-place.
+///
+/// This is the same function as `decode`, but replaces the encoded message
+/// with the decoded message instead of writing to another buffer.
+pub fn decode_in_place(buff: &mut[u8]) -> Result<usize, ()> {
+    decode_raw!(buff, buff)
 }
 
 /// Decodes the `source` buffer into the `dest` buffer using an arbitrary sentinel value.
+///
+/// This is done by XOR-ing each byte of the source message with the chosen sentinel value,
+/// which transforms the message into the same message encoded with a sentinel value of 0.
+/// Then the regular decoding transformation is performed.
 pub fn decode_with_sentinel(source: &[u8], dest: &mut[u8], sentinel: u8) -> Result<usize, ()> {
-    let mut source_index = 0;
-    let mut dest_index = 0;
-
-    while source_index < source.len() {
-        let code = source[source_index];
-
-        if source_index + code as usize > source.len() && code != 1 {
-            return Err(());
-        }
-
-        source_index += 1;
-
-        for _ in (1..code) {
-            dest[dest_index] = source[source_index];
-            source_index += 1;
-            dest_index += 1;
-        }
-
-        if 0xFF != code && source_index < source.len() {
-            dest[dest_index] = sentinel;
-            dest_index += 1;
-        }
+    for (x, y) in source.iter().zip(dest.iter_mut()) {
+        *y = *x ^ sentinel;
     }
+    decode_in_place(dest)
+}
 
-    Ok(dest_index)
+/// Decodes a message in-place using an arbitrary sentinel value.
+pub fn decode_in_place_with_sentinel(buff: &mut[u8], sentinel: u8) -> Result<usize, ()> {
+    for x in buff.iter_mut() {
+        *x ^= sentinel;
+    }
+    decode_in_place(buff)
 }
 
 /// Decodes the `source` buffer into a vector.
 pub fn decode_vec(source: &[u8]) -> Result<Vec<u8>, ()> {
-    decode_vec_with_sentinel(source, 0)
+    let mut decoded = vec![0; source.len()];
+    match decode(source, &mut decoded[..]) {
+        Ok(n) => {
+            decoded.truncate(n);
+            Ok(decoded)
+        },
+        Err(()) => Err(()),
+    }
 }
 
 /// Decodes the `source` buffer into a vector with an arbitrary sentinel value.

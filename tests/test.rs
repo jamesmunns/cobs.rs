@@ -45,6 +45,15 @@ fn test_encode_4() {
 
 fn identity(source: Vec<u8>, sentinel: u8) -> TestResult {
     let encoded = encode_vec_with_sentinel(&source[..], sentinel);
+
+    // Check that the sentinel doesn't show up in the encoded message
+    for x in encoded.iter() {
+        if *x == sentinel {
+            return TestResult::error("Sentinel found in encoded message.");
+        }
+    }
+
+    // Check that the decoding the encoded message returns the original message
     match decode_vec_with_sentinel(&encoded[..], sentinel) {
         Ok(decoded) => {
             if source == decoded {

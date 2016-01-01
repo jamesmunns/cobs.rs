@@ -87,7 +87,7 @@ macro_rules! decode_raw (
 
             source_index += 1;
 
-            for _ in (1..code) {
+            for _ in 1..code {
                 $dst[dest_index] = $src[source_index];
                 source_index += 1;
                 dest_index += 1;

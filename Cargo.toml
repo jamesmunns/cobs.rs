@@ -2,7 +2,7 @@
 name = "cobs"
 version = "0.1.1"
 authors = ["Allen Welkie <>"]
-license = "MIT"
+license = "MIT OR Apache-2.0"
 description = """
     This is an implementation of the Consistent Overhead Byte Stuffing (COBS) algorithm.
     COBS is an algorithm for transforming a message into an encoding where a specific value

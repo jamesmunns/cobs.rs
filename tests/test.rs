@@ -2,7 +2,7 @@ extern crate cobs;
 extern crate quickcheck;
 
 use quickcheck::{quickcheck, TestResult};
-use cobs::{max_encoding_length, encode, decode};
+use cobs::{max_encoding_length, encode, decode, encode_vec, decode_vec};
 use cobs::{encode_vec_with_sentinel, decode_vec_with_sentinel};
 
 fn test_pair(source: Vec<u8>, encoded: Vec<u8>) {
@@ -12,6 +12,12 @@ fn test_pair(source: Vec<u8>, encoded: Vec<u8>) {
     decode(&encoded[..], &mut test_decoded[..]).unwrap();
     assert_eq!(encoded, test_encoded);
     assert_eq!(source, test_decoded);
+}
+
+fn test_roundtrip(source: Vec<u8>) {
+    let encoded = encode_vec(&source);
+    let decoded = decode_vec(&encoded).expect("decode_vec");
+    assert_eq!(source, decoded);
 }
 
 #[test]
@@ -41,6 +47,22 @@ fn test_encode_3() {
 #[test]
 fn test_encode_4() {
     test_pair(vec![1], vec![2, 1])
+}
+
+#[test]
+fn test_roundtrip_1() {
+    test_roundtrip(vec![1,2,3]);
+}
+
+#[test]
+fn test_roundtrip_2() {
+    for i in 0..5usize {
+        let mut v = Vec::new();
+        for j in 0..252+i {
+            v.push(j as u8);
+        }
+        test_roundtrip(v);
+    }
 }
 
 fn identity(source: Vec<u8>, sentinel: u8) -> TestResult {

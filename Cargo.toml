@@ -11,5 +11,9 @@ description = """
 repository = "https://github.com/awelkie/cobs.rs"
 keywords = ["consistent", "overhead", "byte", "stuffing"]
 
+[features]
+default = ["use_std"]
+use_std = []
+
 [dev-dependencies]
 quickcheck = "*"

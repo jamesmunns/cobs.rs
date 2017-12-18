@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "use_std"), no_std)]
+
 /// Encodes the `source` buffer into the `dest` buffer.
 ///
 /// This function uses the typical sentinel value of 0. It returns the number of bytes
@@ -56,6 +58,7 @@ pub fn encode_with_sentinel(source: &[u8], dest: &mut[u8], sentinel: u8) -> usiz
     return encoded_size;
 }
 
+#[cfg(feature = "use_std")]
 /// Encodes the `source` buffer into a vector.
 pub fn encode_vec(source: &[u8]) -> Vec<u8> {
     let mut encoded = vec![0; max_encoding_length(source.len())];
@@ -64,6 +67,7 @@ pub fn encode_vec(source: &[u8]) -> Vec<u8> {
     return encoded;
 }
 
+#[cfg(feature = "use_std")]
 /// Encodes the `source` buffer into a vector with an arbitrary sentinel value.
 pub fn encode_vec_with_sentinel(source: &[u8], sentinel: u8) -> Vec<u8> {
     let mut encoded = vec![0; max_encoding_length(source.len())];
@@ -150,6 +154,7 @@ pub fn decode_in_place_with_sentinel(buff: &mut[u8], sentinel: u8) -> Result<usi
     decode_in_place(buff)
 }
 
+#[cfg(feature = "use_std")]
 /// Decodes the `source` buffer into a vector.
 pub fn decode_vec(source: &[u8]) -> Result<Vec<u8>, ()> {
     let mut decoded = vec![0; source.len()];
@@ -162,6 +167,7 @@ pub fn decode_vec(source: &[u8]) -> Result<Vec<u8>, ()> {
     }
 }
 
+#[cfg(feature = "use_std")]
 /// Decodes the `source` buffer into a vector with an arbitrary sentinel value.
 pub fn decode_vec_with_sentinel(source: &[u8], sentinel: u8) -> Result<Vec<u8>, ()> {
     let mut decoded = vec![0; source.len()];

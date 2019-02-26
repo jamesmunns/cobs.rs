@@ -1,5 +1,65 @@
 #![cfg_attr(not(feature = "use_std"), no_std)]
 
+#[derive(Debug)]
+pub struct CobsEncoder<'a> {
+    dest: &'a mut [u8],
+    dest_idx: usize,
+    code_idx: usize,
+    num_bt_sent: u8,
+}
+
+impl<'a> CobsEncoder<'a> {
+    pub fn new(out_buf: &'a mut [u8]) -> CobsEncoder<'a> {
+        CobsEncoder {
+            dest: out_buf,
+            dest_idx: 1,
+            code_idx: 0,
+            num_bt_sent: 1,
+        }
+    }
+
+    pub fn push(&mut self, data: &[u8]) -> Result<(), ()> {
+        // TODO: could probably check if this would fit without
+        // iterating through all data
+        for x in data {
+            if *x == 0 {
+                *self.dest.get_mut(self.code_idx)
+                    .ok_or_else(|| ())? = self.num_bt_sent;
+
+                self.num_bt_sent = 1;
+                self.code_idx = self.dest_idx;
+                self.dest_idx += 1;
+            } else {
+                *self.dest.get_mut(self.dest_idx)
+                    .ok_or_else(|| ())? = *x;
+
+                self.num_bt_sent += 1;
+                self.dest_idx += 1;
+                if 0xFF == self.num_bt_sent {
+                    *self.dest.get_mut(self.code_idx)
+                        .ok_or_else(|| ())? = self.num_bt_sent;
+                    self.num_bt_sent = 1;
+                    self.code_idx = self.dest_idx;
+                    self.dest_idx += 1;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn finalize(self) -> Result<usize, ()> {
+        if self.dest_idx == 1 {
+            return Ok(0);
+        }
+
+        *self.dest.get_mut(self.code_idx)
+            .ok_or_else(|| ())? = self.num_bt_sent;
+
+        return Ok(self.dest_idx);
+    }
+}
+
 /// Encodes the `source` buffer into the `dest` buffer.
 ///
 /// This function uses the typical sentinel value of 0. It returns the number of bytes
@@ -11,36 +71,9 @@
 /// encoded message. You can calculate the size the `dest` buffer needs to be with
 /// the `max_encoding_length` function.
 pub fn encode(source: &[u8], dest: &mut[u8]) -> usize {
-    let mut dest_index = 1;
-    let mut code_index = 0;
-    let mut num_between_sentinel = 1;
-
-    if source.is_empty() {
-        return 0;
-    }
-
-    for x in source {
-        if *x == 0 {
-            dest[code_index] = num_between_sentinel;
-            num_between_sentinel = 1;
-            code_index = dest_index;
-            dest_index += 1;
-        } else {
-            dest[dest_index] = *x;
-            num_between_sentinel += 1;
-            dest_index += 1;
-            if 0xFF == num_between_sentinel {
-                dest[code_index] = num_between_sentinel;
-                num_between_sentinel = 1;
-                code_index = dest_index;
-                dest_index += 1;
-            }
-        }
-    }
-
-    dest[code_index] = num_between_sentinel;
-
-    return dest_index;
+    let mut enc = CobsEncoder::new(dest);
+    enc.push(source).unwrap();
+    enc.finalize().unwrap()
 }
 
 /// Encodes the `source` buffer into the `dest` buffer using an

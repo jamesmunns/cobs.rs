@@ -4,6 +4,7 @@ extern crate quickcheck;
 use quickcheck::{quickcheck, TestResult};
 use cobs::{max_encoding_length, encode, decode, encode_vec, decode_vec};
 use cobs::{encode_vec_with_sentinel, decode_vec_with_sentinel};
+use cobs::{CobsEncoder};
 
 fn test_pair(source: Vec<u8>, encoded: Vec<u8>) {
     let mut test_encoded = encoded.clone();
@@ -18,6 +19,37 @@ fn test_roundtrip(source: Vec<u8>) {
     let encoded = encode_vec(&source);
     let decoded = decode_vec(&encoded).expect("decode_vec");
     assert_eq!(source, decoded);
+}
+
+#[test]
+fn cobs_encoder() {
+    #[allow(overflowing_literals)]
+    let source: Vec<u8> = (0..1200)
+        .map(|x: usize| (x & 0xFF) as u8)
+        .collect();
+
+    let mut dest = [0u8; 1300];
+    let mut dest2 = [0u8; 1300];
+    let mut ddest = [0u8; 1300];
+
+    let sz = {
+        let mut ce = CobsEncoder::new(&mut dest);
+
+        for c in source.chunks(15) {
+            println!("{:?}", c);
+            ce.push(c).unwrap();
+        }
+        let sz = ce.finalize().unwrap();
+        sz
+    };
+
+    let enc = encode(source.as_slice(), &mut dest2);
+    assert_eq!(enc, sz);
+    assert_eq!(dest.to_vec(), dest2.to_vec());
+
+    let decoded = decode(&dest[..sz], &mut ddest).unwrap();
+    assert_eq!(decoded, source.len());
+    assert_eq!(source.as_slice(), &ddest[..decoded]);
 }
 
 #[test]

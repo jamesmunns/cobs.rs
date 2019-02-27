@@ -36,7 +36,6 @@ fn cobs_encoder() {
         let mut ce = CobsEncoder::new(&mut dest);
 
         for c in source.chunks(15) {
-            println!("{:?}", c);
             ce.push(c).unwrap();
         }
         let sz = ce.finalize().unwrap();

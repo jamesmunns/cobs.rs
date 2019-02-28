@@ -118,9 +118,16 @@ pub struct CobsDecoder<'a> {
 
 #[derive(Debug)]
 enum DecoderState {
+    /// State machine has not received any non-zero bytes
     Idle,
-    Wait,
+
+    /// 1-254 bytes, can be header or 00
+    Grab(u8),
+
+    /// 255 bytes, will be a header next
     GrabChain(u8),
+
+    /// Prevent re-using the state machine
     ErrOrComplete,
 }
 
@@ -145,40 +152,53 @@ impl<'a> CobsDecoder<'a> {
 
     pub fn feed(&mut self, data: u8) -> Result<Option<usize>, usize> {
         use DecoderState::*;
-        let (ret, state) = match (&self.state, data) {
-            (ErrOrComplete, _) => return Err(self.dest_idx),
-            (Idle, 0) => {
-                // Is an empty frame a Some?
-                (Ok(None), Idle)
-            },
-            (Wait, 0) => {
-                (Ok(Some(self.dest_idx)), ErrOrComplete)
-            }
-            (_, 0) => {
-                (Err(self.dest_idx), ErrOrComplete)
-            }
-            (Idle, i) => (Ok(None), GrabChain(i)),
-            (Wait, i) => (Ok(None), GrabChain(i)),
-            (GrabChain(rem), d) => {
-                if *rem == 1 {
-                    (Ok(None), Wait)
-                } else if add(self.dest, self.dest_idx, d).is_ok() {
-                    self.dest_idx += 1;
-                    (Ok(None), GrabChain(rem - 1))
-                } else {
-                    (Err(self.dest_idx), ErrOrComplete)
-                }
-            }
 
+        println!("Before {} {:?}", data, self);
+
+        let (ret, state) = match (&self.state, data) {
+            (Idle, 0x00) => (Ok(None), Idle),
+            (Idle, 0xFF) => (Ok(None), GrabChain(0xFF)), // off by one?
+            (Idle, n)    => (Ok(None), Grab(n)),
+            (Grab(0..=1), 0x00) => (Ok(Some(self.dest_idx)), ErrOrComplete),
+            (Grab(0..=1), 0xFF) => {
+                let _ = add(self.dest, self.dest_idx, 0u8).map_err(|_| self.dest_idx)?;
+                self.dest_idx += 1usize;
+                (Ok(None), GrabChain(0xFF))
+            },
+            (Grab(0..=1), n) => {
+                let _ = add(self.dest, self.dest_idx, 0u8).map_err(|_| self.dest_idx)?;
+                self.dest_idx += 1usize;
+                (Ok(None), Grab(n))
+            },
+            (Grab(i), n) =>  {
+                add(self.dest, self.dest_idx, n).map_err(|_| self.dest_idx)?;
+                self.dest_idx += 1;
+                (Ok(None), Grab(i - 1))
+            },
+            (GrabChain(0..=1), 0x00) => (Ok(Some(self.dest_idx)), ErrOrComplete),
+            (GrabChain(0..=1), 0xFF) => (Ok(None), GrabChain(0xFF)),
+            (GrabChain(0..=1), n) => (Ok(None), Grab(n)),
+            (GrabChain(i), n) => {
+                add(self.dest, self.dest_idx, n).map_err(|_| self.dest_idx)?;
+                self.dest_idx += 1;
+                (Ok(None), GrabChain(i - 1))
+            },
+            (ErrOrComplete, _) => (Err(self.dest_idx), ErrOrComplete),
         };
 
         self.state = state;
+
+        println!("After {} {:?}", data, self);
+
         ret
     }
 
     pub fn push(&mut self, data: &[u8]) -> Result<Option<(usize, usize)>, ()> {
         for (i, d) in data.iter().enumerate() {
-            if let Some(n) = self.feed(*d).map_err(|_| ())? {
+            // println!("Decode tab {} {} {:?}", i, *d, self);
+            let x = self.feed(*d);
+            println!("==> {:?}", x);
+            if let Some(n) = x.map_err(|_| ())? {
                 return Ok(Some((n, i)));
             }
         }
@@ -289,11 +309,7 @@ pub fn decode(source: &[u8], dest: &mut[u8]) -> Result<usize, ()> {
     assert!(dec.push(source).unwrap().is_none());
     println!("{:?}", dec);
     if let Some((d_used, s_used)) = dec.push(&[0]).unwrap() {
-        if s_used != source.len() {
-            Err(())
-        } else {
-            Ok(d_used)
-        }
+        Ok(d_used)
     } else {
         Err(())
     }

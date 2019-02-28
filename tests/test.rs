@@ -17,7 +17,9 @@ fn test_pair(source: Vec<u8>, encoded: Vec<u8>) {
 
 fn test_roundtrip(source: Vec<u8>) {
     let encoded = encode_vec(&source);
+    println!("E: {:?}", encoded);
     let decoded = decode_vec(&encoded).expect("decode_vec");
+    println!("D: {:?}", decoded);
     assert_eq!(source, decoded);
 }
 

@@ -9,6 +9,8 @@ pub struct CobsEncoder<'a> {
 }
 
 impl<'a> CobsEncoder<'a> {
+
+    /// Create a new streaming Cobs Encoder
     pub fn new(out_buf: &'a mut [u8]) -> CobsEncoder<'a> {
         CobsEncoder {
             dest: out_buf,
@@ -18,6 +20,7 @@ impl<'a> CobsEncoder<'a> {
         }
     }
 
+    /// Push a slice of data to be encoded
     pub fn push(&mut self, data: &[u8]) -> Result<(), ()> {
         // TODO: could probably check if this would fit without
         // iterating through all data
@@ -48,6 +51,8 @@ impl<'a> CobsEncoder<'a> {
         Ok(())
     }
 
+    /// Complete encoding of the output message. Does NOT terminate
+    /// the message with the sentinel value
     pub fn finalize(self) -> Result<usize, ()> {
         if self.dest_idx == 1 {
             return Ok(0);
@@ -111,8 +116,13 @@ pub fn encode_vec_with_sentinel(source: &[u8], sentinel: u8) -> Vec<u8> {
 
 #[derive(Debug)]
 pub struct CobsDecoder<'a> {
+    /// Destination slice for decoded message
     dest: &'a mut [u8],
+
+    /// Index of next byte to write in `dest`
     dest_idx: usize,
+
+    /// Decoder state as an enum
     state: DecoderState,
 }
 
@@ -138,6 +148,9 @@ fn add(to: &mut [u8], idx: usize, data: u8) -> Result<(), ()> {
 }
 
 impl<'a> CobsDecoder<'a> {
+
+    /// Create a new streaming Cobs Decoder. Provide the output buffer
+    /// for the decoded message to be placed in
     pub fn new(dest: &'a mut [u8]) -> CobsDecoder<'a> {
         CobsDecoder {
             dest,
@@ -146,38 +159,40 @@ impl<'a> CobsDecoder<'a> {
         }
     }
 
-    // fn test_encode_2() {
-    //     test_pair(vec![0, 0, 1, 0], vec![1, 1, 2, 1, 1])
-    // }
-
+    /// Push a single byte into the streaming CobsDecoder. Return values mean:
+    ///
+    /// * Ok(None) - State machine okay, more data needed
+    /// * Ok(Some(N)) - A message of N bytes was successfully decoded
+    /// * Err(M) - Message decoding failed, and M bytes were written to output
+    ///
+    /// NOTE: Sentinel value must be included in the input to this function for the
+    /// decoding to complete
     pub fn feed(&mut self, data: u8) -> Result<Option<usize>, usize> {
         use DecoderState::*;
 
-        println!("Before {} {:?}", data, self);
-
         let (ret, state) = match (&self.state, data) {
             (Idle, 0x00) => (Ok(None), Idle),
-            (Idle, 0xFF) => (Ok(None), GrabChain(0xFF)), // off by one?
-            (Idle, n)    => (Ok(None), Grab(n)),
-            (Grab(0..=1), 0x00) => (Ok(Some(self.dest_idx)), ErrOrComplete),
-            (Grab(0..=1), 0xFF) => {
-                let _ = add(self.dest, self.dest_idx, 0u8).map_err(|_| self.dest_idx)?;
+            (Idle, 0xFF) => (Ok(None), GrabChain(0xFE)),
+            (Idle, n)    => (Ok(None), Grab(n - 1)),
+            (Grab(0), 0x00) => (Ok(Some(self.dest_idx)), ErrOrComplete),
+            (Grab(0), 0xFF) => {
+                add(self.dest, self.dest_idx, 0u8).map_err(|_| self.dest_idx)?;
                 self.dest_idx += 1usize;
-                (Ok(None), GrabChain(0xFF))
+                (Ok(None), GrabChain(0xFE))
             },
-            (Grab(0..=1), n) => {
-                let _ = add(self.dest, self.dest_idx, 0u8).map_err(|_| self.dest_idx)?;
+            (Grab(0), n) => {
+                add(self.dest, self.dest_idx, 0u8).map_err(|_| self.dest_idx)?;
                 self.dest_idx += 1usize;
-                (Ok(None), Grab(n))
+                (Ok(None), Grab(n - 1))
             },
             (Grab(i), n) =>  {
                 add(self.dest, self.dest_idx, n).map_err(|_| self.dest_idx)?;
                 self.dest_idx += 1;
                 (Ok(None), Grab(i - 1))
             },
-            (GrabChain(0..=1), 0x00) => (Ok(Some(self.dest_idx)), ErrOrComplete),
-            (GrabChain(0..=1), 0xFF) => (Ok(None), GrabChain(0xFF)),
-            (GrabChain(0..=1), n) => (Ok(None), Grab(n)),
+            (GrabChain(0), 0x00) => (Ok(Some(self.dest_idx)), ErrOrComplete),
+            (GrabChain(0), 0xFF) => (Ok(None), GrabChain(0xFE)),
+            (GrabChain(0), n) => (Ok(None), Grab(n - 1)),
             (GrabChain(i), n) => {
                 add(self.dest, self.dest_idx, n).map_err(|_| self.dest_idx)?;
                 self.dest_idx += 1;
@@ -187,18 +202,22 @@ impl<'a> CobsDecoder<'a> {
         };
 
         self.state = state;
-
-        println!("After {} {:?}", data, self);
-
         ret
     }
 
-    pub fn push(&mut self, data: &[u8]) -> Result<Option<(usize, usize)>, ()> {
+    /// Push a slice of bytes into the streaming CobsDecoder. Return values mean:
+    ///
+    /// * Ok(None) - State machine okay, more data needed
+    /// * Ok(Some((N, M))) - A message of N bytes was successfully decoded,
+    ///     using M bytes from `data` (and earlier data)
+    /// * Err(J - Message decoding failed, and J bytes were written to output
+    ///
+    /// NOTE: Sentinel value must be included in the input to this function for the
+    /// decoding to complete
+    pub fn push(&mut self, data: &[u8]) -> Result<Option<(usize, usize)>, usize> {
         for (i, d) in data.iter().enumerate() {
-            // println!("Decode tab {} {} {:?}", i, *d, self);
             let x = self.feed(*d);
-            println!("==> {:?}", x);
-            if let Some(n) = x.map_err(|_| ())? {
+            if let Some(n) = x? {
                 return Ok(Some((n, i)));
             }
         }
@@ -206,56 +225,6 @@ impl<'a> CobsDecoder<'a> {
         Ok(None)
     }
 }
-    //     if self.done {
-    //         return Err(());
-    //     }
-
-    //     for (i, d) in data.iter().enumerate() {
-    //         if self.code.is_none() {
-    //             if *d == 0 {
-    //                 self.done = true;
-
-    //                 if i < (data.len() - 1) {
-    //                     return Ok(Some(if self.dest_idx == 0 { 0 } else { self.dest_idx - 1 }))
-    //                 } else {
-    //                     continue
-    //                 }
-    //             }
-
-    //             self.code = Some(*d);
-    //             self.skip = (self.dest_idx == 0) || (*d == 0xFF);
-    //             continue;
-    //         } else if *d == 0 {
-    //             return Err(());
-    //         }
-
-    //         let end = {
-    //             let c = self.code.as_mut().unwrap();
-    //             *c -= 1;
-
-    //             if *c == 0 {
-    //                 true
-    //             } else {
-    //                 *self.dest.get_mut(self.dest_idx)
-    //                     .ok_or_else(|| ())? = *d;
-    //                 self.dest_idx += 1;
-    //                 false
-    //             }
-    //         };
-
-
-    //         if end {
-    //             self.code = None;
-    //             if !self.skip {
-    //                 *self.dest.get_mut(self.dest_idx)
-    //                     .ok_or_else(|| ())? = 0;
-    //                 self.dest_idx += 1;
-    //             }
-    //         }
-
-    //     }
-    //     Ok(None)
-    // }
 
 // This needs to be a macro because `src` and `dst` could be the same or different.
 macro_rules! decode_raw (
@@ -307,8 +276,9 @@ pub fn decode(source: &[u8], dest: &mut[u8]) -> Result<usize, ()> {
     // decode_raw!(source, dest)
     let mut dec = CobsDecoder::new(dest);
     assert!(dec.push(source).unwrap().is_none());
-    println!("{:?}", dec);
-    if let Some((d_used, s_used)) = dec.push(&[0]).unwrap() {
+
+    // Explicitly push sentinel of zero
+    if let Some((d_used, _s_used)) = dec.push(&[0]).unwrap() {
         Ok(d_used)
     } else {
         Err(())

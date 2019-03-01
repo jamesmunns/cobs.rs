@@ -171,33 +171,90 @@ impl<'a> CobsDecoder<'a> {
         use DecoderState::*;
 
         let (ret, state) = match (&self.state, data) {
+            // Currently Idle, received a terminator, ignore, stay idle
             (Idle, 0x00) => (Ok(None), Idle),
+
+            // Currently Idle, received a byte indicating the
+            // next 255 bytes have no zeroes, so we will have 254 unmodified
+            // data bytes, then an overhead byte
             (Idle, 0xFF) => (Ok(None), GrabChain(0xFE)),
+
+            // Currently Idle, received a byte indicating there will be a
+            // zero that must be modified in the next 1..=254 bytes
             (Idle, n)    => (Ok(None), Grab(n - 1)),
+
+            // We have reached the end of a data run indicated by an overhead
+            // byte, AND we have recieved the message terminator. This was a
+            // well framed message!
             (Grab(0), 0x00) => (Ok(Some(self.dest_idx)), ErrOrComplete),
+
+            // We have reached the end of a data run indicated by an overhead
+            // byte, and the next segment of 254 bytes will have no modified
+            // sentinel bytes
             (Grab(0), 0xFF) => {
                 add(self.dest, self.dest_idx, 0u8).map_err(|_| self.dest_idx)?;
                 self.dest_idx += 1usize;
                 (Ok(None), GrabChain(0xFE))
             },
+
+            // We have reached the end of a data run indicated by an overhead
+            // byte, and we will treat this byte as a modified sentinel byte.
+            // place the sentinel byte in the output, and begin processing the
+            // next non-sentinel sequence
             (Grab(0), n) => {
                 add(self.dest, self.dest_idx, 0u8).map_err(|_| self.dest_idx)?;
                 self.dest_idx += 1usize;
                 (Ok(None), Grab(n - 1))
             },
+
+            // We were not expecting the sequence to terminate, but here we are.
+            // Report an error due to early terminated message
+            (Grab(_), 0) => {
+                (Err(self.dest_idx), ErrOrComplete)
+            }
+
+            // We have not yet reached the end of a data run, decrement the run
+            // counter, and place the byte into the decoded output
             (Grab(i), n) =>  {
                 add(self.dest, self.dest_idx, n).map_err(|_| self.dest_idx)?;
                 self.dest_idx += 1;
                 (Ok(None), Grab(i - 1))
             },
-            (GrabChain(0), 0x00) => (Ok(Some(self.dest_idx)), ErrOrComplete),
+
+            // We have reached the end of a data run, and we expect a data header
+            // here. Since 0x00 is not a valid overhead byte, this is an error case.
+            // This may non *NEED* to be an error, but Example 9 on
+            // https://en.wikipedia.org/wiki/Consistent_Overhead_Byte_Stuffing
+            // indicates that this is not correct behavior
+            (GrabChain(0), 0x00) => {
+                // AJM: this should probably be an error!
+                (Err(self.dest_idx), ErrOrComplete)
+            }
+
+            // We have reached the end of a data run, and we will begin another
+            // data run with an overhead byte expected at the end
             (GrabChain(0), 0xFF) => (Ok(None), GrabChain(0xFE)),
+
+            // We have reached the end of a data run, and we will expect `n` data
+            // bytes unmodified, followed by a sentinel byte that must be modified
             (GrabChain(0), n) => (Ok(None), Grab(n - 1)),
+
+            // We were not expecting the sequence to terminate, but here we are.
+            // Report an error due to early terminated message
+            (GrabChain(_), 0) => {
+                (Err(self.dest_idx), ErrOrComplete)
+            }
+
+            // We have not yet reached the end of a data run, decrement the run
+            // counter, and place the byte into the decoded output
             (GrabChain(i), n) => {
                 add(self.dest, self.dest_idx, n).map_err(|_| self.dest_idx)?;
                 self.dest_idx += 1;
                 (Ok(None), GrabChain(i - 1))
             },
+
+            // When we have errored or successfully completed decoding a message,
+            // latch this state to prevent confusion
             (ErrOrComplete, _) => (Err(self.dest_idx), ErrOrComplete),
         };
 
@@ -210,15 +267,16 @@ impl<'a> CobsDecoder<'a> {
     /// * Ok(None) - State machine okay, more data needed
     /// * Ok(Some((N, M))) - A message of N bytes was successfully decoded,
     ///     using M bytes from `data` (and earlier data)
-    /// * Err(J - Message decoding failed, and J bytes were written to output
+    /// * Err(J) - Message decoding failed, and J bytes were written to output
     ///
     /// NOTE: Sentinel value must be included in the input to this function for the
     /// decoding to complete
     pub fn push(&mut self, data: &[u8]) -> Result<Option<(usize, usize)>, usize> {
-        for (i, d) in data.iter().enumerate() {
+        for (consumed_idx, d) in data.iter().enumerate() {
             let x = self.feed(*d);
-            if let Some(n) = x? {
-                return Ok(Some((n, i)));
+            if let Some(decoded_bytes_ct) = x? {
+                // convert from index to number of bytes consumed
+                return Ok(Some((decoded_bytes_ct, consumed_idx + 1)));
             }
         }
 

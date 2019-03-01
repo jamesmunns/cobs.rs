@@ -169,7 +169,6 @@ impl<'a> CobsDecoder<'a> {
     /// decoding to complete
     pub fn feed(&mut self, data: u8) -> Result<Option<usize>, usize> {
         use DecoderState::*;
-
         let (ret, state) = match (&self.state, data) {
             // Currently Idle, received a terminator, ignore, stay idle
             (Idle, 0x00) => (Ok(None), Idle),
@@ -221,13 +220,11 @@ impl<'a> CobsDecoder<'a> {
                 (Ok(None), Grab(i - 1))
             },
 
-            // We have reached the end of a data run, and we expect a data header
-            // here. Since 0x00 is not a valid overhead byte, this is an error case.
-            // This may non *NEED* to be an error, but Example 9 on
-            // https://en.wikipedia.org/wiki/Consistent_Overhead_Byte_Stuffing
-            // indicates that this is not correct behavior
+            // We have reached the end of a data run indicated by an overhead
+            // byte, AND we have recieved the message terminator. This was a
+            // well framed message!
             (GrabChain(0), 0x00) => {
-                (Err(self.dest_idx), ErrOrComplete)
+                (Ok(Some(self.dest_idx)), ErrOrComplete)
             }
 
             // We have reached the end of a data run, and we will begin another
@@ -330,7 +327,6 @@ macro_rules! decode_raw (
 /// message, it may be a good idea to make the `dest` buffer as big as the
 /// `source` buffer.
 pub fn decode(source: &[u8], dest: &mut[u8]) -> Result<usize, ()> {
-    // decode_raw!(source, dest)
     let mut dec = CobsDecoder::new(dest);
     assert!(dec.push(source).unwrap().is_none());
 

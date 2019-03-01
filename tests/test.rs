@@ -4,7 +4,7 @@ extern crate quickcheck;
 use quickcheck::{quickcheck, TestResult};
 use cobs::{max_encoding_length, encode, decode, encode_vec, decode_vec};
 use cobs::{encode_vec_with_sentinel, decode_vec_with_sentinel};
-use cobs::{CobsEncoder};
+use cobs::{CobsEncoder, CobsDecoder};
 
 fn test_pair(source: Vec<u8>, encoded: Vec<u8>) {
     let mut test_encoded = encoded.clone();
@@ -29,33 +29,40 @@ fn test_roundtrip(source: Vec<u8>) {
 }
 
 #[test]
-fn cobs_encoder() {
-    #[allow(overflowing_literals)]
-    let source: Vec<u8> = (0..1200)
-        .map(|x: usize| (x & 0xFF) as u8)
-        .collect();
+fn stream_roundtrip() {
+    for ct in 1..=1000 {
+        let source: Vec<u8> = (ct..2*ct)
+            .map(|x: usize| (x & 0xFF) as u8)
+            .collect();
 
-    let mut dest = [0u8; 1300];
-    let mut dest2 = [0u8; 1300];
-    let mut ddest = [0u8; 1300];
+        let mut dest = vec![0u8; max_encoding_length(source.len())];
 
-    let sz = {
-        let mut ce = CobsEncoder::new(&mut dest);
+        let sz_en = {
+            let mut ce = CobsEncoder::new(&mut dest);
 
-        for c in source.chunks(15) {
-            ce.push(c).unwrap();
-        }
-        let sz = ce.finalize().unwrap();
-        sz
-    };
+            for c in source.chunks(17) {
+                ce.push(c).unwrap();
+            }
+            let sz = ce.finalize().unwrap();
+            sz
+        };
 
-    let enc = encode(source.as_slice(), &mut dest2);
-    assert_eq!(enc, sz);
-    assert_eq!(dest.to_vec(), dest2.to_vec());
+        let mut decoded = source.clone();
+        decoded.iter_mut().for_each(|i| *i = 0x80);
+        let sz_de = {
+            let mut cd = CobsDecoder::new(&mut decoded);
 
-    let decoded = decode(&dest[..sz], &mut ddest).unwrap();
-    assert_eq!(decoded, source.len());
-    assert_eq!(source.as_slice(), &ddest[..decoded]);
+            for c in dest[0..sz_en].chunks(11) {
+                cd.push(c).unwrap();
+            }
+            let sz_msg = cd.feed(0).unwrap().unwrap();
+            sz_msg
+        };
+
+        assert_eq!(sz_de, source.len());
+        assert_eq!(source, decoded);
+    }
+
 }
 
 #[test]
@@ -140,6 +147,51 @@ fn test_encode_decode() {
 }
 
 #[test]
+fn wikipedia_ex_6() {
+    let mut unencoded: Vec<u8> = vec![];
+
+    (1..=0xFE).for_each(|i| unencoded.push(i));
+
+    // NOTE: trailing 0x00 is implicit
+    let mut encoded: Vec<u8> = vec![];
+    encoded.push(0xFF);
+    (1..=0xFE).for_each(|i| encoded.push(i));
+
+    test_pair(unencoded, encoded);
+}
+
+#[test]
+fn wikipedia_ex_7() {
+    let mut unencoded: Vec<u8> = vec![];
+
+    (0..=0xFE).for_each(|i| unencoded.push(i));
+
+    // NOTE: trailing 0x00 is implicit
+    let mut encoded: Vec<u8> = vec![];
+    encoded.push(0x01);
+    encoded.push(0xFF);
+    (1..=0xFE).for_each(|i| encoded.push(i));
+
+    test_pair(unencoded, encoded);
+}
+
+#[test]
+fn wikipedia_ex_8() {
+    let mut unencoded: Vec<u8> = vec![];
+
+    (1..=0xFF).for_each(|i| unencoded.push(i));
+
+    // NOTE: trailing 0x00 is implicit
+    let mut encoded: Vec<u8> = vec![];
+    encoded.push(0xFF);
+    (1..=0xFE).for_each(|i| encoded.push(i));
+    encoded.push(0x02);
+    encoded.push(0xFF);
+
+    test_pair(unencoded, encoded);
+}
+
+#[test]
 fn wikipedia_ex_9() {
     let mut unencoded: Vec<u8> = vec![];
 
@@ -151,6 +203,24 @@ fn wikipedia_ex_9() {
     encoded.push(0xFF);
     (2..=0xFF).for_each(|i| encoded.push(i));
     encoded.push(0x01);
+    encoded.push(0x01);
+
+    test_pair(unencoded, encoded);
+}
+
+#[test]
+fn wikipedia_ex_10() {
+    let mut unencoded: Vec<u8> = vec![];
+
+    (3..=0xFF).for_each(|i| unencoded.push(i));
+    unencoded.push(0x00);
+    unencoded.push(0x01);
+
+    // NOTE: trailing 0x00 is implicit
+    let mut encoded: Vec<u8> = vec![];
+    encoded.push(0xFE);
+    (3..=0xFF).for_each(|i| encoded.push(i));
+    encoded.push(0x02);
     encoded.push(0x01);
 
     test_pair(unencoded, encoded);

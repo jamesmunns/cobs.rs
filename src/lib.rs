@@ -58,8 +58,11 @@ impl<'a> CobsEncoder<'a> {
             return Ok(0);
         }
 
-        *self.dest.get_mut(self.code_idx)
-            .ok_or_else(|| ())? = self.num_bt_sent;
+        // If the current code index is outside of the destination slice,
+        // we do not need to write it out
+        if let Some(i) = self.dest.get_mut(self.code_idx) {
+            *i = self.num_bt_sent;
+        }
 
         return Ok(self.dest_idx);
     }

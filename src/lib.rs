@@ -227,7 +227,6 @@ impl<'a> CobsDecoder<'a> {
             // https://en.wikipedia.org/wiki/Consistent_Overhead_Byte_Stuffing
             // indicates that this is not correct behavior
             (GrabChain(0), 0x00) => {
-                // AJM: this should probably be an error!
                 (Err(self.dest_idx), ErrOrComplete)
             }
 

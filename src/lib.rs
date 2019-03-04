@@ -1,5 +1,73 @@
 #![cfg_attr(not(feature = "use_std"), no_std)]
 
+#[derive(Debug)]
+pub struct CobsEncoder<'a> {
+    dest: &'a mut [u8],
+    dest_idx: usize,
+    code_idx: usize,
+    num_bt_sent: u8,
+}
+
+impl<'a> CobsEncoder<'a> {
+
+    /// Create a new streaming Cobs Encoder
+    pub fn new(out_buf: &'a mut [u8]) -> CobsEncoder<'a> {
+        CobsEncoder {
+            dest: out_buf,
+            dest_idx: 1,
+            code_idx: 0,
+            num_bt_sent: 1,
+        }
+    }
+
+    /// Push a slice of data to be encoded
+    pub fn push(&mut self, data: &[u8]) -> Result<(), ()> {
+        // TODO: could probably check if this would fit without
+        // iterating through all data
+        for x in data {
+            if *x == 0 {
+                *self.dest.get_mut(self.code_idx)
+                    .ok_or_else(|| ())? = self.num_bt_sent;
+
+                self.num_bt_sent = 1;
+                self.code_idx = self.dest_idx;
+                self.dest_idx += 1;
+            } else {
+                *self.dest.get_mut(self.dest_idx)
+                    .ok_or_else(|| ())? = *x;
+
+                self.num_bt_sent += 1;
+                self.dest_idx += 1;
+                if 0xFF == self.num_bt_sent {
+                    *self.dest.get_mut(self.code_idx)
+                        .ok_or_else(|| ())? = self.num_bt_sent;
+                    self.num_bt_sent = 1;
+                    self.code_idx = self.dest_idx;
+                    self.dest_idx += 1;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Complete encoding of the output message. Does NOT terminate
+    /// the message with the sentinel value
+    pub fn finalize(self) -> Result<usize, ()> {
+        if self.dest_idx == 1 {
+            return Ok(0);
+        }
+
+        // If the current code index is outside of the destination slice,
+        // we do not need to write it out
+        if let Some(i) = self.dest.get_mut(self.code_idx) {
+            *i = self.num_bt_sent;
+        }
+
+        return Ok(self.dest_idx);
+    }
+}
+
 /// Encodes the `source` buffer into the `dest` buffer.
 ///
 /// This function uses the typical sentinel value of 0. It returns the number of bytes
@@ -11,36 +79,9 @@
 /// encoded message. You can calculate the size the `dest` buffer needs to be with
 /// the `max_encoding_length` function.
 pub fn encode(source: &[u8], dest: &mut[u8]) -> usize {
-    let mut dest_index = 1;
-    let mut code_index = 0;
-    let mut num_between_sentinel = 1;
-
-    if source.is_empty() {
-        return 0;
-    }
-
-    for x in source {
-        if *x == 0 {
-            dest[code_index] = num_between_sentinel;
-            num_between_sentinel = 1;
-            code_index = dest_index;
-            dest_index += 1;
-        } else {
-            dest[dest_index] = *x;
-            num_between_sentinel += 1;
-            dest_index += 1;
-            if 0xFF == num_between_sentinel {
-                dest[code_index] = num_between_sentinel;
-                num_between_sentinel = 1;
-                code_index = dest_index;
-                dest_index += 1;
-            }
-        }
-    }
-
-    dest[code_index] = num_between_sentinel;
-
-    return dest_index;
+    let mut enc = CobsEncoder::new(dest);
+    enc.push(source).unwrap();
+    enc.finalize().unwrap()
 }
 
 /// Encodes the `source` buffer into the `dest` buffer using an
@@ -74,6 +115,172 @@ pub fn encode_vec_with_sentinel(source: &[u8], sentinel: u8) -> Vec<u8> {
     let encoded_len = encode_with_sentinel(source, &mut encoded[..], sentinel);
     encoded.truncate(encoded_len);
     return encoded;
+}
+
+#[derive(Debug)]
+pub struct CobsDecoder<'a> {
+    /// Destination slice for decoded message
+    dest: &'a mut [u8],
+
+    /// Index of next byte to write in `dest`
+    dest_idx: usize,
+
+    /// Decoder state as an enum
+    state: DecoderState,
+}
+
+#[derive(Debug)]
+enum DecoderState {
+    /// State machine has not received any non-zero bytes
+    Idle,
+
+    /// 1-254 bytes, can be header or 00
+    Grab(u8),
+
+    /// 255 bytes, will be a header next
+    GrabChain(u8),
+
+    /// Prevent re-using the state machine
+    ErrOrComplete,
+}
+
+fn add(to: &mut [u8], idx: usize, data: u8) -> Result<(), ()> {
+    *to.get_mut(idx)
+        .ok_or_else(|| ())? = data;
+    Ok(())
+}
+
+impl<'a> CobsDecoder<'a> {
+
+    /// Create a new streaming Cobs Decoder. Provide the output buffer
+    /// for the decoded message to be placed in
+    pub fn new(dest: &'a mut [u8]) -> CobsDecoder<'a> {
+        CobsDecoder {
+            dest,
+            dest_idx: 0,
+            state: DecoderState::Idle,
+        }
+    }
+
+    /// Push a single byte into the streaming CobsDecoder. Return values mean:
+    ///
+    /// * Ok(None) - State machine okay, more data needed
+    /// * Ok(Some(N)) - A message of N bytes was successfully decoded
+    /// * Err(M) - Message decoding failed, and M bytes were written to output
+    ///
+    /// NOTE: Sentinel value must be included in the input to this function for the
+    /// decoding to complete
+    pub fn feed(&mut self, data: u8) -> Result<Option<usize>, usize> {
+        use DecoderState::*;
+        let (ret, state) = match (&self.state, data) {
+            // Currently Idle, received a terminator, ignore, stay idle
+            (Idle, 0x00) => (Ok(None), Idle),
+
+            // Currently Idle, received a byte indicating the
+            // next 255 bytes have no zeroes, so we will have 254 unmodified
+            // data bytes, then an overhead byte
+            (Idle, 0xFF) => (Ok(None), GrabChain(0xFE)),
+
+            // Currently Idle, received a byte indicating there will be a
+            // zero that must be modified in the next 1..=254 bytes
+            (Idle, n)    => (Ok(None), Grab(n - 1)),
+
+            // We have reached the end of a data run indicated by an overhead
+            // byte, AND we have recieved the message terminator. This was a
+            // well framed message!
+            (Grab(0), 0x00) => (Ok(Some(self.dest_idx)), ErrOrComplete),
+
+            // We have reached the end of a data run indicated by an overhead
+            // byte, and the next segment of 254 bytes will have no modified
+            // sentinel bytes
+            (Grab(0), 0xFF) => {
+                add(self.dest, self.dest_idx, 0u8).map_err(|_| self.dest_idx)?;
+                self.dest_idx += 1usize;
+                (Ok(None), GrabChain(0xFE))
+            },
+
+            // We have reached the end of a data run indicated by an overhead
+            // byte, and we will treat this byte as a modified sentinel byte.
+            // place the sentinel byte in the output, and begin processing the
+            // next non-sentinel sequence
+            (Grab(0), n) => {
+                add(self.dest, self.dest_idx, 0u8).map_err(|_| self.dest_idx)?;
+                self.dest_idx += 1usize;
+                (Ok(None), Grab(n - 1))
+            },
+
+            // We were not expecting the sequence to terminate, but here we are.
+            // Report an error due to early terminated message
+            (Grab(_), 0) => {
+                (Err(self.dest_idx), ErrOrComplete)
+            }
+
+            // We have not yet reached the end of a data run, decrement the run
+            // counter, and place the byte into the decoded output
+            (Grab(i), n) =>  {
+                add(self.dest, self.dest_idx, n).map_err(|_| self.dest_idx)?;
+                self.dest_idx += 1;
+                (Ok(None), Grab(i - 1))
+            },
+
+            // We have reached the end of a data run indicated by an overhead
+            // byte, AND we have recieved the message terminator. This was a
+            // well framed message!
+            (GrabChain(0), 0x00) => {
+                (Ok(Some(self.dest_idx)), ErrOrComplete)
+            }
+
+            // We have reached the end of a data run, and we will begin another
+            // data run with an overhead byte expected at the end
+            (GrabChain(0), 0xFF) => (Ok(None), GrabChain(0xFE)),
+
+            // We have reached the end of a data run, and we will expect `n` data
+            // bytes unmodified, followed by a sentinel byte that must be modified
+            (GrabChain(0), n) => (Ok(None), Grab(n - 1)),
+
+            // We were not expecting the sequence to terminate, but here we are.
+            // Report an error due to early terminated message
+            (GrabChain(_), 0) => {
+                (Err(self.dest_idx), ErrOrComplete)
+            }
+
+            // We have not yet reached the end of a data run, decrement the run
+            // counter, and place the byte into the decoded output
+            (GrabChain(i), n) => {
+                add(self.dest, self.dest_idx, n).map_err(|_| self.dest_idx)?;
+                self.dest_idx += 1;
+                (Ok(None), GrabChain(i - 1))
+            },
+
+            // When we have errored or successfully completed decoding a message,
+            // latch this state to prevent confusion
+            (ErrOrComplete, _) => (Err(self.dest_idx), ErrOrComplete),
+        };
+
+        self.state = state;
+        ret
+    }
+
+    /// Push a slice of bytes into the streaming CobsDecoder. Return values mean:
+    ///
+    /// * Ok(None) - State machine okay, more data needed
+    /// * Ok(Some((N, M))) - A message of N bytes was successfully decoded,
+    ///     using M bytes from `data` (and earlier data)
+    /// * Err(J) - Message decoding failed, and J bytes were written to output
+    ///
+    /// NOTE: Sentinel value must be included in the input to this function for the
+    /// decoding to complete
+    pub fn push(&mut self, data: &[u8]) -> Result<Option<(usize, usize)>, usize> {
+        for (consumed_idx, d) in data.iter().enumerate() {
+            let x = self.feed(*d);
+            if let Some(decoded_bytes_ct) = x? {
+                // convert from index to number of bytes consumed
+                return Ok(Some((decoded_bytes_ct, consumed_idx + 1)));
+            }
+        }
+
+        Ok(None)
+    }
 }
 
 // This needs to be a macro because `src` and `dst` could be the same or different.
@@ -123,7 +330,15 @@ macro_rules! decode_raw (
 /// message, it may be a good idea to make the `dest` buffer as big as the
 /// `source` buffer.
 pub fn decode(source: &[u8], dest: &mut[u8]) -> Result<usize, ()> {
-    decode_raw!(source, dest)
+    let mut dec = CobsDecoder::new(dest);
+    assert!(dec.push(source).unwrap().is_none());
+
+    // Explicitly push sentinel of zero
+    if let Some((d_used, _s_used)) = dec.push(&[0]).unwrap() {
+        Ok(d_used)
+    } else {
+        Err(())
+    }
 }
 
 /// Decodes a message in-place.

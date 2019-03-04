@@ -3,3 +3,13 @@ rust:
   - stable
   - beta
   - nightly
+
+install:
+  - rustup target add thumbv7em-none-eabihf
+  
+script:
+- cargo build
+- cargo test
+
+# Check for no_std compatibility by building for an embedded target
+- cargo build --no-default-features --target=thumbv7em-none-eabihf

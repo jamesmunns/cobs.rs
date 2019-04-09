@@ -4,8 +4,60 @@
 pub struct CobsEncoder<'a> {
     dest: &'a mut [u8],
     dest_idx: usize,
+    state: CobsEncoderState,
+}
+
+enum PushResult {
+    AddSingle(u8),
+    ModifyFromStartAndSkip((usize, u8)),
+    ModifyFromStartAndPushAndSkip((usize, u8, u8))
+
+}
+
+#[derive(Debug)]
+struct CobsEncoderState {
     code_idx: usize,
     num_bt_sent: u8,
+    offset_idx: u8,
+}
+
+impl Default for CobsEncoderState {
+    fn default() -> Self {
+        Self {
+            code_idx: 0,
+            num_bt_sent: 1,
+            offset_idx: 1,
+        }
+    }
+}
+
+impl CobsEncoderState {
+    fn push_inner(&mut self, data: u8) -> PushResult {
+        if data == 0 {
+            let ret = PushResult::ModifyFromStartAndSkip((self.code_idx, self.num_bt_sent));
+            self.code_idx += usize::from(self.offset_idx);
+            self.num_bt_sent = 1;
+            self.offset_idx = 1;
+            ret
+        } else {
+            self.num_bt_sent += 1;
+            self.offset_idx += 1;
+
+            if 0xFF == self.num_bt_sent {
+                let ret = PushResult::ModifyFromStartAndPushAndSkip((self.code_idx, self.num_bt_sent, data));
+                self.num_bt_sent = 1;
+                self.code_idx += usize::from(self.offset_idx);
+                self.offset_idx = 1;
+                ret
+            } else {
+                PushResult::AddSingle(data)
+            }
+        }
+    }
+
+    fn finalize(self) -> (usize, u8) {
+        (self.code_idx, self.num_bt_sent)
+    }
 }
 
 impl<'a> CobsEncoder<'a> {
@@ -15,8 +67,7 @@ impl<'a> CobsEncoder<'a> {
         CobsEncoder {
             dest: out_buf,
             dest_idx: 1,
-            code_idx: 0,
-            num_bt_sent: 1,
+            state: CobsEncoderState::default(),
         }
     }
 
@@ -25,27 +76,27 @@ impl<'a> CobsEncoder<'a> {
         // TODO: could probably check if this would fit without
         // iterating through all data
         for x in data {
-            if *x == 0 {
-                *self.dest.get_mut(self.code_idx)
-                    .ok_or_else(|| ())? = self.num_bt_sent;
-
-                self.num_bt_sent = 1;
-                self.code_idx = self.dest_idx;
-                self.dest_idx += 1;
-            } else {
-                *self.dest.get_mut(self.dest_idx)
-                    .ok_or_else(|| ())? = *x;
-
-                self.num_bt_sent += 1;
-                self.dest_idx += 1;
-                if 0xFF == self.num_bt_sent {
-                    *self.dest.get_mut(self.code_idx)
-                        .ok_or_else(|| ())? = self.num_bt_sent;
-                    self.num_bt_sent = 1;
-                    self.code_idx = self.dest_idx;
+            use PushResult::*;
+            match self.state.push_inner(*x) {
+                AddSingle(y) => {
+                    *self.dest.get_mut(self.dest_idx)
+                        .ok_or_else(|| ())? = y;
+                }
+                ModifyFromStartAndSkip((idx, mval)) => {
+                    *self.dest.get_mut(idx)
+                        .ok_or_else(|| ())? = mval;
+                }
+                ModifyFromStartAndPushAndSkip((idx, mval, nval1)) => {
+                    *self.dest.get_mut(idx)
+                        .ok_or_else(|| ())? = mval;
+                    *self.dest.get_mut(self.dest_idx)
+                        .ok_or_else(|| ())? = nval1;
                     self.dest_idx += 1;
                 }
             }
+
+            // All branches above require advancing the pointer at least once
+            self.dest_idx += 1;
         }
 
         Ok(())
@@ -58,10 +109,13 @@ impl<'a> CobsEncoder<'a> {
             return Ok(0);
         }
 
+        // Get the last index that needs to be fixed
+        let (idx, mval) = self.state.finalize();
+
         // If the current code index is outside of the destination slice,
         // we do not need to write it out
-        if let Some(i) = self.dest.get_mut(self.code_idx) {
-            *i = self.num_bt_sent;
+        if let Some(i) = self.dest.get_mut(idx) {
+            *i = mval;
         }
 
         return Ok(self.dest_idx);

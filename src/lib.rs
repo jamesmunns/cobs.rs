@@ -193,15 +193,100 @@ enum DecoderState {
 
     /// 255 bytes, will be a header next
     GrabChain(u8),
-
-    /// Prevent re-using the state machine
-    ErrOrComplete,
 }
 
 fn add(to: &mut [u8], idx: usize, data: u8) -> Result<(), ()> {
     *to.get_mut(idx)
         .ok_or_else(|| ())? = data;
     Ok(())
+}
+
+enum DecodeResult {
+    NoData,
+    DataComplete,
+    DataContinue(u8),
+}
+
+impl DecoderState {
+    fn feed_inner(&mut self, data: u8) -> Result<DecodeResult, ()> {
+        use DecoderState::*;
+        use DecodeResult::*;
+        let (ret, state) = match (&self, data) {
+            // Currently Idle, received a terminator, ignore, stay idle
+            (Idle, 0x00) => (Ok(NoData), Idle),
+
+            // Currently Idle, received a byte indicating the
+            // next 255 bytes have no zeroes, so we will have 254 unmodified
+            // data bytes, then an overhead byte
+            (Idle, 0xFF) => (Ok(NoData), GrabChain(0xFE)),
+
+            // Currently Idle, received a byte indicating there will be a
+            // zero that must be modified in the next 1..=254 bytes
+            (Idle, n)    => (Ok(NoData), Grab(n - 1)),
+
+            // We have reached the end of a data run indicated by an overhead
+            // byte, AND we have recieved the message terminator. This was a
+            // well framed message!
+            (Grab(0), 0x00) => (Ok(DataComplete), Idle),
+
+            // We have reached the end of a data run indicated by an overhead
+            // byte, and the next segment of 254 bytes will have no modified
+            // sentinel bytes
+            (Grab(0), 0xFF) => {
+                (Ok(DataContinue(0)), GrabChain(0xFE))
+            },
+
+            // We have reached the end of a data run indicated by an overhead
+            // byte, and we will treat this byte as a modified sentinel byte.
+            // place the sentinel byte in the output, and begin processing the
+            // next non-sentinel sequence
+            (Grab(0), n) => {
+                (Ok(DataContinue(0)), Grab(n - 1))
+            },
+
+            // We were not expecting the sequence to terminate, but here we are.
+            // Report an error due to early terminated message
+            (Grab(_), 0) => {
+                (Err(()), Idle)
+            }
+
+            // We have not yet reached the end of a data run, decrement the run
+            // counter, and place the byte into the decoded output
+            (Grab(i), n) =>  {
+                (Ok(DataContinue(n)), Grab(*i - 1))
+            },
+
+            // We have reached the end of a data run indicated by an overhead
+            // byte, AND we have recieved the message terminator. This was a
+            // well framed message!
+            (GrabChain(0), 0x00) => {
+                (Ok(DataComplete), Idle)
+            }
+
+            // We have reached the end of a data run, and we will begin another
+            // data run with an overhead byte expected at the end
+            (GrabChain(0), 0xFF) => (Ok(NoData), GrabChain(0xFE)),
+
+            // We have reached the end of a data run, and we will expect `n` data
+            // bytes unmodified, followed by a sentinel byte that must be modified
+            (GrabChain(0), n) => (Ok(NoData), Grab(n - 1)),
+
+            // We were not expecting the sequence to terminate, but here we are.
+            // Report an error due to early terminated message
+            (GrabChain(_), 0) => {
+                (Err(()), Idle)
+            }
+
+            // We have not yet reached the end of a data run, decrement the run
+            // counter, and place the byte into the decoded output
+            (GrabChain(i), n) => {
+                (Ok(DataContinue(n)), GrabChain(*i - 1))
+            },
+        };
+
+        *self = state;
+        ret
+    }
 }
 
 impl<'a> CobsDecoder<'a> {
@@ -225,94 +310,18 @@ impl<'a> CobsDecoder<'a> {
     /// NOTE: Sentinel value must be included in the input to this function for the
     /// decoding to complete
     pub fn feed(&mut self, data: u8) -> Result<Option<usize>, usize> {
-        use DecoderState::*;
-        let (ret, state) = match (&self.state, data) {
-            // Currently Idle, received a terminator, ignore, stay idle
-            (Idle, 0x00) => (Ok(None), Idle),
-
-            // Currently Idle, received a byte indicating the
-            // next 255 bytes have no zeroes, so we will have 254 unmodified
-            // data bytes, then an overhead byte
-            (Idle, 0xFF) => (Ok(None), GrabChain(0xFE)),
-
-            // Currently Idle, received a byte indicating there will be a
-            // zero that must be modified in the next 1..=254 bytes
-            (Idle, n)    => (Ok(None), Grab(n - 1)),
-
-            // We have reached the end of a data run indicated by an overhead
-            // byte, AND we have recieved the message terminator. This was a
-            // well framed message!
-            (Grab(0), 0x00) => (Ok(Some(self.dest_idx)), ErrOrComplete),
-
-            // We have reached the end of a data run indicated by an overhead
-            // byte, and the next segment of 254 bytes will have no modified
-            // sentinel bytes
-            (Grab(0), 0xFF) => {
-                add(self.dest, self.dest_idx, 0u8).map_err(|_| self.dest_idx)?;
-                self.dest_idx += 1usize;
-                (Ok(None), GrabChain(0xFE))
-            },
-
-            // We have reached the end of a data run indicated by an overhead
-            // byte, and we will treat this byte as a modified sentinel byte.
-            // place the sentinel byte in the output, and begin processing the
-            // next non-sentinel sequence
-            (Grab(0), n) => {
-                add(self.dest, self.dest_idx, 0u8).map_err(|_| self.dest_idx)?;
-                self.dest_idx += 1usize;
-                (Ok(None), Grab(n - 1))
-            },
-
-            // We were not expecting the sequence to terminate, but here we are.
-            // Report an error due to early terminated message
-            (Grab(_), 0) => {
-                (Err(self.dest_idx), ErrOrComplete)
-            }
-
-            // We have not yet reached the end of a data run, decrement the run
-            // counter, and place the byte into the decoded output
-            (Grab(i), n) =>  {
+        match self.state.feed_inner(data) {
+            Err(()) => Err(self.dest_idx),
+            Ok(DecodeResult::NoData) => Ok(None),
+            Ok(DecodeResult::DataContinue(n)) => {
                 add(self.dest, self.dest_idx, n).map_err(|_| self.dest_idx)?;
                 self.dest_idx += 1;
-                (Ok(None), Grab(i - 1))
-            },
-
-            // We have reached the end of a data run indicated by an overhead
-            // byte, AND we have recieved the message terminator. This was a
-            // well framed message!
-            (GrabChain(0), 0x00) => {
-                (Ok(Some(self.dest_idx)), ErrOrComplete)
+                Ok(None)
             }
-
-            // We have reached the end of a data run, and we will begin another
-            // data run with an overhead byte expected at the end
-            (GrabChain(0), 0xFF) => (Ok(None), GrabChain(0xFE)),
-
-            // We have reached the end of a data run, and we will expect `n` data
-            // bytes unmodified, followed by a sentinel byte that must be modified
-            (GrabChain(0), n) => (Ok(None), Grab(n - 1)),
-
-            // We were not expecting the sequence to terminate, but here we are.
-            // Report an error due to early terminated message
-            (GrabChain(_), 0) => {
-                (Err(self.dest_idx), ErrOrComplete)
+            Ok(DecodeResult::DataComplete) => {
+                Ok(Some(self.dest_idx))
             }
-
-            // We have not yet reached the end of a data run, decrement the run
-            // counter, and place the byte into the decoded output
-            (GrabChain(i), n) => {
-                add(self.dest, self.dest_idx, n).map_err(|_| self.dest_idx)?;
-                self.dest_idx += 1;
-                (Ok(None), GrabChain(i - 1))
-            },
-
-            // When we have errored or successfully completed decoding a message,
-            // latch this state to prevent confusion
-            (ErrOrComplete, _) => (Err(self.dest_idx), ErrOrComplete),
-        };
-
-        self.state = state;
-        ret
+        }
     }
 
     /// Push a slice of bytes into the streaming CobsDecoder. Return values mean:

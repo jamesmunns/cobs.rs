@@ -54,7 +54,7 @@ impl EncoderState {
         }
     }
 
-    fn finalize(self) -> (usize, u8) {
+    pub fn finalize(self) -> (usize, u8) {
         (self.code_idx, self.num_bt_sent)
     }
 }

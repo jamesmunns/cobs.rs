@@ -4,24 +4,23 @@
 pub struct CobsEncoder<'a> {
     dest: &'a mut [u8],
     dest_idx: usize,
-    state: CobsEncoderState,
+    state: EncoderState,
 }
 
-enum PushResult {
+pub enum PushResult {
     AddSingle(u8),
     ModifyFromStartAndSkip((usize, u8)),
     ModifyFromStartAndPushAndSkip((usize, u8, u8))
-
 }
 
 #[derive(Debug)]
-struct CobsEncoderState {
+pub struct EncoderState {
     code_idx: usize,
     num_bt_sent: u8,
     offset_idx: u8,
 }
 
-impl Default for CobsEncoderState {
+impl Default for EncoderState {
     fn default() -> Self {
         Self {
             code_idx: 0,
@@ -31,8 +30,8 @@ impl Default for CobsEncoderState {
     }
 }
 
-impl CobsEncoderState {
-    fn push_inner(&mut self, data: u8) -> PushResult {
+impl EncoderState {
+    pub fn push(&mut self, data: u8) -> PushResult {
         if data == 0 {
             let ret = PushResult::ModifyFromStartAndSkip((self.code_idx, self.num_bt_sent));
             self.code_idx += usize::from(self.offset_idx);
@@ -67,7 +66,7 @@ impl<'a> CobsEncoder<'a> {
         CobsEncoder {
             dest: out_buf,
             dest_idx: 1,
-            state: CobsEncoderState::default(),
+            state: EncoderState::default(),
         }
     }
 
@@ -77,7 +76,7 @@ impl<'a> CobsEncoder<'a> {
         // iterating through all data
         for x in data {
             use PushResult::*;
-            match self.state.push_inner(*x) {
+            match self.state.push(*x) {
                 AddSingle(y) => {
                     *self.dest.get_mut(self.dest_idx)
                         .ok_or_else(|| ())? = y;
@@ -184,7 +183,7 @@ pub struct CobsDecoder<'a> {
 }
 
 #[derive(Debug)]
-enum DecoderState {
+pub enum DecoderState {
     /// State machine has not received any non-zero bytes
     Idle,
 
@@ -201,14 +200,14 @@ fn add(to: &mut [u8], idx: usize, data: u8) -> Result<(), ()> {
     Ok(())
 }
 
-enum DecodeResult {
+pub enum DecodeResult {
     NoData,
     DataComplete,
     DataContinue(u8),
 }
 
 impl DecoderState {
-    fn feed_inner(&mut self, data: u8) -> Result<DecodeResult, ()> {
+    pub fn feed(&mut self, data: u8) -> Result<DecodeResult, ()> {
         use DecoderState::*;
         use DecodeResult::*;
         let (ret, state) = match (&self, data) {
@@ -310,7 +309,7 @@ impl<'a> CobsDecoder<'a> {
     /// NOTE: Sentinel value must be included in the input to this function for the
     /// decoding to complete
     pub fn feed(&mut self, data: u8) -> Result<Option<usize>, usize> {
-        match self.state.feed_inner(data) {
+        match self.state.feed(data) {
             Err(()) => Err(self.dest_idx),
             Ok(DecodeResult::NoData) => Ok(None),
             Ok(DecodeResult::DataContinue(n)) => {

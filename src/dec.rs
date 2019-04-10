@@ -1,3 +1,7 @@
+/// The [`CobsDecoder`] type is used to decode a stream of bytes to a
+/// given mutable output slice. This is often useful when heap data
+/// structures are not available, or when not all message bytes are
+/// received at a single point in time.
 #[derive(Debug)]
 pub struct CobsDecoder<'a> {
     /// Destination slice for decoded message
@@ -10,6 +14,10 @@ pub struct CobsDecoder<'a> {
     state: DecoderState,
 }
 
+/// The [`DecoderState`] is used to track the current state of a
+/// streaming decoder. This struct does not contain the output buffer
+/// (or a reference to one), and can be used when streaming the decoded
+/// output to a custom data type.
 #[derive(Debug)]
 pub enum DecoderState {
     /// State machine has not received any non-zero bytes
@@ -28,13 +36,34 @@ fn add(to: &mut [u8], idx: usize, data: u8) -> Result<(), ()> {
     Ok(())
 }
 
+/// [`DecodeResult`] represents the possible non-error outcomes of
+/// pushing an encoded data byte into the [`DecoderState`] state machine
 pub enum DecodeResult {
+    /// The given input byte did not prompt an output byte, either because the
+    /// state machine is still idle, or we have just processed a header byte.
+    /// More data is needed to complete the message.
     NoData,
+
+    /// We have received a complete and well-encoded COBS message. The
+    /// contents of the associated output buffer may now be used
     DataComplete,
+
+    /// The following byte should be appended to the current end of the decoded
+    /// output buffer.
+    /// More data is needed to complete the message.
     DataContinue(u8),
 }
 
 impl DecoderState {
+    /// Push a single encoded byte into the state machine. If the input was
+    /// unexpected, such as an early end of a framed message segment, an Error will
+    /// be returned, and the current associated output buffer contents should be discarded.
+    ///
+    /// If a complete message is indicated, the decoding state machine will automatically
+    /// reset itself to the Idle state, and may be used to begin decoding another message.
+    ///
+    /// NOTE: Sentinel value must be included in the input to this function for the
+    /// decoding to complete
     pub fn feed(&mut self, data: u8) -> Result<DecodeResult, ()> {
         use DecoderState::*;
         use DecodeResult::*;

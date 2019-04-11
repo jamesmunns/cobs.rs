@@ -1,14 +1,14 @@
 [package]
-name = "cobs"
-version = "0.1.4"
-authors = ["Allen Welkie <>"]
+name = "postcard-cobs"
+version = "0.1.5-pre"
+authors = ["Allen Welkie <>", "James Munns <james.munns@ferrous-systems.com>"]
 license = "MIT OR Apache-2.0"
 description = """
     This is an implementation of the Consistent Overhead Byte Stuffing (COBS) algorithm.
     COBS is an algorithm for transforming a message into an encoding where a specific value
     (the "sentinel" value) is not used. This value can then be used to mark frame boundaries
     in a serial communication channel. """
-repository = "https://github.com/awelkie/cobs.rs"
+repository = "https://github.com/ferrous-systems/cobs.rs"
 keywords = ["consistent", "overhead", "byte", "stuffing"]
 edition = "2018"
 

@@ -1,8 +1,18 @@
-# COBS.rs
+# `postcard-cobs`
 
-[![Build Status](https://travis-ci.org/awelkie/cobs.rs.svg?branch=master)](https://travis-ci.org/awelkie/cobs.rs)
-[![](https://img.shields.io/crates/v/cobs.svg)](https://crates.io/crates/cobs)
-[![](https://img.shields.io/crates/l/cobs.svg)](https://crates.io/crates/cobs)
+> ⚠️ - WARNING
+>
+> This crate is a fork of the [cobs.rs] crate, originally intended to
+> be a temporary solution for the [postcard] crate. Since then,
+> [@jamesmunns] has been granted ownership of the [cobs.rs] crate, and
+> intends to upstream the local changes in this crate.
+>
+> At that time, this crate will be marked `deprecated` with a point
+> release, but will NOT be yanked.
+
+[cobs.rs]: https://github.com/awelkie/cobs.rs
+[postcard]: https://docs.rs/postcard
+[@jamesmunns]: https://github.com/jamesmunns
 
 This is an implementation of the Consistent Overhead Byte Stuffing (COBS) algorithm in Rust.
 

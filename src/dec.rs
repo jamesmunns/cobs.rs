@@ -250,10 +250,10 @@ macro_rules! decode_raw (
 /// `source` buffer.
 pub fn decode(source: &[u8], dest: &mut[u8]) -> Result<usize, ()> {
     let mut dec = CobsDecoder::new(dest);
-    assert!(dec.push(source).unwrap().is_none());
+    assert!(dec.push(source).or(Err(()))?.is_none());
 
     // Explicitly push sentinel of zero
-    if let Some((d_used, _s_used)) = dec.push(&[0]).unwrap() {
+    if let Some((d_used, _s_used)) = dec.push(&[0]).or(Err(()))? {
         Ok(d_used)
     } else {
         Err(())

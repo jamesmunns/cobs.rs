@@ -1,10 +1,10 @@
-extern crate cobs;
+extern crate postcard_cobs;
 extern crate quickcheck;
 
 use quickcheck::{quickcheck, TestResult};
-use cobs::{max_encoding_length, encode, decode, encode_vec, decode_vec};
-use cobs::{encode_vec_with_sentinel, decode_vec_with_sentinel};
-use cobs::{CobsEncoder, CobsDecoder};
+use postcard_cobs::{max_encoding_length, encode, decode, encode_vec, decode_vec};
+use postcard_cobs::{encode_vec_with_sentinel, decode_vec_with_sentinel};
+use postcard_cobs::{CobsEncoder, CobsDecoder};
 
 fn test_pair(source: Vec<u8>, encoded: Vec<u8>) {
     let mut test_encoded = encoded.clone();
@@ -26,6 +26,17 @@ fn test_roundtrip(source: Vec<u8>) {
     let encoded = encode_vec(&source);
     let decoded = decode_vec(&encoded).expect("decode_vec");
     assert_eq!(source, decoded);
+}
+
+#[test]
+fn decode_malforemd() {
+    let malformed_buf: [u8;32] = [68, 69, 65, 68, 66, 69, 69, 70, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let mut dest_buf : [u8;32] = [0;32];
+    if let Err(()) = decode(&malformed_buf, &mut dest_buf){
+        return;
+    } else {
+        assert!(false, "invalid test result.");
+    }
 }
 
 #[test]

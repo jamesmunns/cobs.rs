@@ -22,7 +22,7 @@ pub struct CobsEncoder<'a> {
 /// **ALREADY** contains a single placeholder byte, and no other bytes.
 /// This placeholder byte will be later modified with the first distance
 /// to the next header/zero byte.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct EncoderState {
     code_idx: usize,
     num_bt_sent: u8,

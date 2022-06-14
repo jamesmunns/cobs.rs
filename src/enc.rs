@@ -170,6 +170,18 @@ pub fn encode(source: &[u8], dest: &mut[u8]) -> usize {
     enc.finalize().unwrap()
 }
 
+/// Attempts to encode the `source` buffer into the `dest` buffer.
+///
+/// This function uses the typical sentinel value of 0. It returns the number of bytes
+/// written to in the `dest` buffer.
+///
+/// If the destination buffer does not have enough room, an error will be returned
+pub fn try_encode(source: &[u8], dest: &mut[u8]) -> Result<usize, ()> {
+    let mut enc = CobsEncoder::new(dest);
+    enc.push(source)?;
+    enc.finalize()
+}
+
 /// Encodes the `source` buffer into the `dest` buffer using an
 /// arbitrary sentinel value.
 ///

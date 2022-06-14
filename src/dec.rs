@@ -241,23 +241,27 @@ macro_rules! decode_raw (
 ///
 /// This will return `Err(())` if there was a decoding error. Otherwise,
 /// it will return `Ok(n)` where `n` is the length of the decoded message.
-///
-/// # Panics
-///
-/// This function will panic if the `dest` buffer is not large enough for the
-/// decoded message. Since an encoded message as always larger than a decoded
-/// message, it may be a good idea to make the `dest` buffer as big as the
-/// `source` buffer.
 pub fn decode(source: &[u8], dest: &mut[u8]) -> Result<usize, ()> {
     let mut dec = CobsDecoder::new(dest);
-    assert!(dec.push(source).or(Err(()))?.is_none());
 
-    // Explicitly push sentinel of zero
-    if let Some((d_used, _s_used)) = dec.push(&[0]).or(Err(()))? {
-        Ok(d_used)
-    } else {
-        Err(())
+    // Did we decode a message, using some or all of the buffer?
+    match dec.push(source).or(Err(()))? {
+        Some((d_used, _s_used)) => return Ok(d_used),
+        None => {},
     }
+
+    // If we consumed the entire buffer, but did NOT get a message,
+    // AND the message did not end with a zero, try providing one to
+    // complete the decoding.
+    if source.last() != Some(&0) {
+        // Explicitly push sentinel of zero
+        if let Some((d_used, _s_used)) = dec.push(&[0]).or(Err(()))? {
+            return Ok(d_used)
+        }
+    }
+
+    // Nope, no early message, no missing terminator, just failed to decode
+    Err(())
 }
 
 /// Decodes a message in-place.

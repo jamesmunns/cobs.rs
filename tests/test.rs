@@ -1,10 +1,10 @@
-extern crate postcard_cobs;
+extern crate cobs;
 extern crate quickcheck;
 
 use quickcheck::{quickcheck, TestResult};
-use postcard_cobs::{max_encoding_length, encode, decode, encode_vec, decode_vec};
-use postcard_cobs::{encode_vec_with_sentinel, decode_vec_with_sentinel};
-use postcard_cobs::{CobsEncoder, CobsDecoder};
+use cobs::{max_encoding_length, encode, decode, encode_vec, decode_vec};
+use cobs::{encode_vec_with_sentinel, decode_vec_with_sentinel};
+use cobs::{CobsEncoder, CobsDecoder};
 
 fn test_pair(source: Vec<u8>, encoded: Vec<u8>) {
     let mut test_encoded = encoded.clone();

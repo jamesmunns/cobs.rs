@@ -1,6 +1,6 @@
 [package]
 name = "cobs"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Allen Welkie <>", "James Munns <james.munns@ferrous-systems.com>"]
 license = "MIT OR Apache-2.0"
 description = """

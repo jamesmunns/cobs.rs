@@ -208,22 +208,30 @@ macro_rules! decode_raw (
         let mut source_index = 0;
         let mut dest_index = 0;
 
-        while source_index < $src.len() {
+        // Stop at the first terminator, if any
+        let src_end = if let Some(end) = $src.iter().position(|b| *b == 0) {
+            end
+        } else {
+            $src.len()
+        };
+
+        while source_index < src_end {
             let code = $src[source_index];
 
-            if source_index + code as usize > $src.len() && code != 1 {
+            if source_index + code as usize > src_end && code != 1 {
                 return Err(());
             }
 
             source_index += 1;
 
+            // TODO: There are potential `panic!`s in these dest_index offsets
             for _ in 1..code {
                 $dst[dest_index] = $src[source_index];
                 source_index += 1;
                 dest_index += 1;
             }
 
-            if 0xFF != code && source_index < $src.len() {
+            if 0xFF != code && source_index < src_end {
                 $dst[dest_index] = 0;
                 dest_index += 1;
             }

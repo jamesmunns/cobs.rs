@@ -236,3 +236,30 @@ fn wikipedia_ex_10() {
 
     test_pair(unencoded, encoded);
 }
+
+#[test]
+fn issue_15() {
+    // Reported: https://github.com/awelkie/cobs.rs/issues/15
+
+    let my_string_buf = b"\x00\x11\x00\x22";
+    let max_len = cobs::max_encoding_length(my_string_buf.len());
+    assert!(max_len < 128);
+    let mut buf = [0u8; 128];
+
+    let len = cobs::encode_with_sentinel(
+        my_string_buf,
+        &mut buf,
+        b'\x00');
+
+    let cobs_buf = &buf[0..len];
+
+    let mut decoded_dest_buf = [0u8; 128];
+    let new_len = cobs::decode_with_sentinel(
+        cobs_buf,
+        &mut decoded_dest_buf,
+        b'\x00').unwrap();
+    let decoded_buf = &decoded_dest_buf[0..new_len];
+
+    println!("{:?}  {:?}  {:?}", my_string_buf, cobs_buf, decoded_buf);
+    assert_eq!(my_string_buf, decoded_buf);
+}

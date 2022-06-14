@@ -237,7 +237,10 @@ macro_rules! decode_raw (
             }
         }
 
-        Ok(dest_index)
+        DecodeReport {
+            dst_used: dest_index,
+            src_used: source_index,
+        }
     })
 );
 
@@ -272,12 +275,36 @@ pub fn decode(source: &[u8], dest: &mut[u8]) -> Result<usize, ()> {
     Err(())
 }
 
+/// A report of the source and destination bytes used during in-place decoding
+#[derive(Debug)]
+pub struct DecodeReport {
+    // The number of source bytes used, NOT INCLUDING the sentinel byte,
+    // if there was one.
+    pub src_used: usize,
+
+    // The number of bytes of the source buffer that now include the
+    // decoded result
+    pub dst_used: usize,
+}
+
+/// Decodes a message in-place.
+///
+/// This is the same function as `decode_in_place`, but provides a report
+/// of both the number of source bytes consumed as well as the size of the
+/// destination used.
+pub fn decode_in_place_report(buff: &mut[u8]) -> Result<DecodeReport, ()> {
+    Ok(decode_raw!(buff, buff))
+}
+
 /// Decodes a message in-place.
 ///
 /// This is the same function as `decode`, but replaces the encoded message
 /// with the decoded message instead of writing to another buffer.
+///
+/// The returned `usize` is the number of bytes used for the DECODED value,
+/// NOT the number of source bytes consumed during decoding.
 pub fn decode_in_place(buff: &mut[u8]) -> Result<usize, ()> {
-    decode_raw!(buff, buff)
+    Ok(decode_raw!(buff, buff).dst_used)
 }
 
 /// Decodes the `source` buffer into the `dest` buffer using an arbitrary sentinel value.
@@ -285,6 +312,9 @@ pub fn decode_in_place(buff: &mut[u8]) -> Result<usize, ()> {
 /// This is done by XOR-ing each byte of the source message with the chosen sentinel value,
 /// which transforms the message into the same message encoded with a sentinel value of 0.
 /// Then the regular decoding transformation is performed.
+///
+/// The returned `usize` is the number of bytes used for the DECODED value,
+/// NOT the number of source bytes consumed during decoding.
 pub fn decode_with_sentinel(source: &[u8], dest: &mut[u8], sentinel: u8) -> Result<usize, ()> {
     for (x, y) in source.iter().zip(dest.iter_mut()) {
         *y = *x ^ sentinel;
@@ -293,6 +323,9 @@ pub fn decode_with_sentinel(source: &[u8], dest: &mut[u8], sentinel: u8) -> Resu
 }
 
 /// Decodes a message in-place using an arbitrary sentinel value.
+///
+/// The returned `usize` is the number of bytes used for the DECODED value,
+/// NOT the number of source bytes consumed during decoding.
 pub fn decode_in_place_with_sentinel(buff: &mut[u8], sentinel: u8) -> Result<usize, ()> {
     for x in buff.iter_mut() {
         *x ^= sentinel;

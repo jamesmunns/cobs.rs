@@ -86,6 +86,15 @@ fn test_max_encoding_length() {
 }
 
 #[test]
+fn test_encode_0() {
+    // An empty input is encoded as no characters.
+    let mut output = [0xFFu8; 16];
+    let used = encode(&[], &mut output);
+    assert_eq!(used, 0);
+    assert_eq!(output.as_slice(), &[0xFFu8; 16]);
+}
+
+#[test]
 fn test_encode_1() {
     test_pair(vec![10, 11, 0, 12], vec![3, 10, 11, 2, 12])
 }

@@ -31,8 +31,7 @@ pub enum DecoderState {
 }
 
 fn add(to: &mut [u8], idx: usize, data: u8) -> Result<(), ()> {
-    *to.get_mut(idx)
-        .ok_or_else(|| ())? = data;
+    *to.get_mut(idx).ok_or(())? = data;
     Ok(())
 }
 
@@ -65,8 +64,8 @@ impl DecoderState {
     /// NOTE: Sentinel value must be included in the input to this function for the
     /// decoding to complete
     pub fn feed(&mut self, data: u8) -> Result<DecodeResult, ()> {
-        use DecoderState::*;
         use DecodeResult::*;
+        use DecoderState::*;
         let (ret, state) = match (&self, data) {
             // Currently Idle, received a terminator, ignore, stay idle
             (Idle, 0x00) => (Ok(NoData), Idle),
@@ -78,7 +77,7 @@ impl DecoderState {
 
             // Currently Idle, received a byte indicating there will be a
             // zero that must be modified in the next 1..=254 bytes
-            (Idle, n)    => (Ok(NoData), Grab(n - 1)),
+            (Idle, n) => (Ok(NoData), Grab(n - 1)),
 
             // We have reached the end of a data run indicated by an overhead
             // byte, AND we have recieved the message terminator. This was a
@@ -88,36 +87,26 @@ impl DecoderState {
             // We have reached the end of a data run indicated by an overhead
             // byte, and the next segment of 254 bytes will have no modified
             // sentinel bytes
-            (Grab(0), 0xFF) => {
-                (Ok(DataContinue(0)), GrabChain(0xFE))
-            },
+            (Grab(0), 0xFF) => (Ok(DataContinue(0)), GrabChain(0xFE)),
 
             // We have reached the end of a data run indicated by an overhead
             // byte, and we will treat this byte as a modified sentinel byte.
             // place the sentinel byte in the output, and begin processing the
             // next non-sentinel sequence
-            (Grab(0), n) => {
-                (Ok(DataContinue(0)), Grab(n - 1))
-            },
+            (Grab(0), n) => (Ok(DataContinue(0)), Grab(n - 1)),
 
             // We were not expecting the sequence to terminate, but here we are.
             // Report an error due to early terminated message
-            (Grab(_), 0) => {
-                (Err(()), Idle)
-            }
+            (Grab(_), 0) => (Err(()), Idle),
 
             // We have not yet reached the end of a data run, decrement the run
             // counter, and place the byte into the decoded output
-            (Grab(i), n) =>  {
-                (Ok(DataContinue(n)), Grab(*i - 1))
-            },
+            (Grab(i), n) => (Ok(DataContinue(n)), Grab(*i - 1)),
 
             // We have reached the end of a data run indicated by an overhead
             // byte, AND we have recieved the message terminator. This was a
             // well framed message!
-            (GrabChain(0), 0x00) => {
-                (Ok(DataComplete), Idle)
-            }
+            (GrabChain(0), 0x00) => (Ok(DataComplete), Idle),
 
             // We have reached the end of a data run, and we will begin another
             // data run with an overhead byte expected at the end
@@ -129,15 +118,11 @@ impl DecoderState {
 
             // We were not expecting the sequence to terminate, but here we are.
             // Report an error due to early terminated message
-            (GrabChain(_), 0) => {
-                (Err(()), Idle)
-            }
+            (GrabChain(_), 0) => (Err(()), Idle),
 
             // We have not yet reached the end of a data run, decrement the run
             // counter, and place the byte into the decoded output
-            (GrabChain(i), n) => {
-                (Ok(DataContinue(n)), GrabChain(*i - 1))
-            },
+            (GrabChain(i), n) => (Ok(DataContinue(n)), GrabChain(*i - 1)),
         };
 
         *self = state;
@@ -146,7 +131,6 @@ impl DecoderState {
 }
 
 impl<'a> CobsDecoder<'a> {
-
     /// Create a new streaming Cobs Decoder. Provide the output buffer
     /// for the decoded message to be placed in
     pub fn new(dest: &'a mut [u8]) -> CobsDecoder<'a> {
@@ -174,9 +158,7 @@ impl<'a> CobsDecoder<'a> {
                 self.dest_idx += 1;
                 Ok(None)
             }
-            Ok(DecodeResult::DataComplete) => {
-                Ok(Some(self.dest_idx))
-            }
+            Ok(DecodeResult::DataComplete) => Ok(Some(self.dest_idx)),
         }
     }
 
@@ -252,13 +234,12 @@ macro_rules! decode_raw (
 ///
 /// This will return `Err(())` if there was a decoding error. Otherwise,
 /// it will return `Ok(n)` where `n` is the length of the decoded message.
-pub fn decode(source: &[u8], dest: &mut[u8]) -> Result<usize, ()> {
+pub fn decode(source: &[u8], dest: &mut [u8]) -> Result<usize, ()> {
     let mut dec = CobsDecoder::new(dest);
 
     // Did we decode a message, using some or all of the buffer?
-    match dec.push(source).or(Err(()))? {
-        Some((d_used, _s_used)) => return Ok(d_used),
-        None => {},
+    if let Some((d_used, _s_used)) = dec.push(source).or(Err(()))? {
+        return Ok(d_used);
     }
 
     // If we consumed the entire buffer, but did NOT get a message,
@@ -267,7 +248,7 @@ pub fn decode(source: &[u8], dest: &mut[u8]) -> Result<usize, ()> {
     if source.last() != Some(&0) {
         // Explicitly push sentinel of zero
         if let Some((d_used, _s_used)) = dec.push(&[0]).or(Err(()))? {
-            return Ok(d_used)
+            return Ok(d_used);
         }
     }
 
@@ -292,7 +273,7 @@ pub struct DecodeReport {
 /// This is the same function as `decode_in_place`, but provides a report
 /// of both the number of source bytes consumed as well as the size of the
 /// destination used.
-pub fn decode_in_place_report(buff: &mut[u8]) -> Result<DecodeReport, ()> {
+pub fn decode_in_place_report(buff: &mut [u8]) -> Result<DecodeReport, ()> {
     Ok(decode_raw!(buff, buff))
 }
 
@@ -303,7 +284,7 @@ pub fn decode_in_place_report(buff: &mut[u8]) -> Result<DecodeReport, ()> {
 ///
 /// The returned `usize` is the number of bytes used for the DECODED value,
 /// NOT the number of source bytes consumed during decoding.
-pub fn decode_in_place(buff: &mut[u8]) -> Result<usize, ()> {
+pub fn decode_in_place(buff: &mut [u8]) -> Result<usize, ()> {
     Ok(decode_raw!(buff, buff).dst_used)
 }
 
@@ -315,7 +296,7 @@ pub fn decode_in_place(buff: &mut[u8]) -> Result<usize, ()> {
 ///
 /// The returned `usize` is the number of bytes used for the DECODED value,
 /// NOT the number of source bytes consumed during decoding.
-pub fn decode_with_sentinel(source: &[u8], dest: &mut[u8], sentinel: u8) -> Result<usize, ()> {
+pub fn decode_with_sentinel(source: &[u8], dest: &mut [u8], sentinel: u8) -> Result<usize, ()> {
     for (x, y) in source.iter().zip(dest.iter_mut()) {
         *y = *x ^ sentinel;
     }
@@ -326,7 +307,7 @@ pub fn decode_with_sentinel(source: &[u8], dest: &mut[u8], sentinel: u8) -> Resu
 ///
 /// The returned `usize` is the number of bytes used for the DECODED value,
 /// NOT the number of source bytes consumed during decoding.
-pub fn decode_in_place_with_sentinel(buff: &mut[u8], sentinel: u8) -> Result<usize, ()> {
+pub fn decode_in_place_with_sentinel(buff: &mut [u8], sentinel: u8) -> Result<usize, ()> {
     for x in buff.iter_mut() {
         *x ^= sentinel;
     }
@@ -341,7 +322,7 @@ pub fn decode_vec(source: &[u8]) -> Result<Vec<u8>, ()> {
         Ok(n) => {
             decoded.truncate(n);
             Ok(decoded)
-        },
+        }
         Err(()) => Err(()),
     }
 }
@@ -354,7 +335,7 @@ pub fn decode_vec_with_sentinel(source: &[u8], sentinel: u8) -> Result<Vec<u8>, 
         Ok(n) => {
             decoded.truncate(n);
             Ok(decoded)
-        },
+        }
         Err(()) => Err(()),
     }
 }

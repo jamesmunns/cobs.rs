@@ -1,10 +1,10 @@
 extern crate cobs;
 extern crate quickcheck;
 
+use cobs::{decode, decode_vec, encode, encode_vec, max_encoding_length};
+use cobs::{decode_vec_with_sentinel, encode_vec_with_sentinel};
+use cobs::{CobsDecoder, CobsEncoder};
 use quickcheck::{quickcheck, TestResult};
-use cobs::{max_encoding_length, encode, decode, encode_vec, decode_vec};
-use cobs::{encode_vec_with_sentinel, decode_vec_with_sentinel};
-use cobs::{CobsEncoder, CobsDecoder};
 
 fn test_pair(source: Vec<u8>, encoded: Vec<u8>) {
     let mut test_encoded = encoded.clone();
@@ -30,9 +30,12 @@ fn test_roundtrip(source: Vec<u8>) {
 
 #[test]
 fn decode_malforemd() {
-    let malformed_buf: [u8;32] = [68, 69, 65, 68, 66, 69, 69, 70, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    let mut dest_buf : [u8;32] = [0;32];
-    if let Err(()) = decode(&malformed_buf, &mut dest_buf){
+    let malformed_buf: [u8; 32] = [
+        68, 69, 65, 68, 66, 69, 69, 70, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0,
+    ];
+    let mut dest_buf: [u8; 32] = [0; 32];
+    if let Err(()) = decode(&malformed_buf, &mut dest_buf) {
         return;
     } else {
         assert!(false, "invalid test result.");
@@ -42,9 +45,7 @@ fn decode_malforemd() {
 #[test]
 fn stream_roundtrip() {
     for ct in 1..=1000 {
-        let source: Vec<u8> = (ct..2*ct)
-            .map(|x: usize| (x & 0xFF) as u8)
-            .collect();
+        let source: Vec<u8> = (ct..2 * ct).map(|x: usize| (x & 0xFF) as u8).collect();
 
         let mut dest = vec![0u8; max_encoding_length(source.len())];
 
@@ -73,7 +74,6 @@ fn stream_roundtrip() {
         assert_eq!(sz_de, source.len());
         assert_eq!(source, decoded);
     }
-
 }
 
 #[test]
@@ -116,14 +116,14 @@ fn test_encode_4() {
 
 #[test]
 fn test_roundtrip_1() {
-    test_roundtrip(vec![1,2,3]);
+    test_roundtrip(vec![1, 2, 3]);
 }
 
 #[test]
 fn test_roundtrip_2() {
     for i in 0..5usize {
         let mut v = Vec::new();
-        for j in 0..252+i {
+        for j in 0..252 + i {
             v.push(j as u8);
         }
         test_roundtrip(v);
@@ -255,18 +255,12 @@ fn issue_15() {
     assert!(max_len < 128);
     let mut buf = [0u8; 128];
 
-    let len = cobs::encode_with_sentinel(
-        my_string_buf,
-        &mut buf,
-        b'\x00');
+    let len = cobs::encode_with_sentinel(my_string_buf, &mut buf, b'\x00');
 
     let cobs_buf = &buf[0..len];
 
     let mut decoded_dest_buf = [0u8; 128];
-    let new_len = cobs::decode_with_sentinel(
-        cobs_buf,
-        &mut decoded_dest_buf,
-        b'\x00').unwrap();
+    let new_len = cobs::decode_with_sentinel(cobs_buf, &mut decoded_dest_buf, b'\x00').unwrap();
     let decoded_buf = &decoded_dest_buf[0..new_len];
 
     println!("{:?}  {:?}  {:?}", my_string_buf, cobs_buf, decoded_buf);

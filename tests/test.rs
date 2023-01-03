@@ -66,7 +66,10 @@ fn stream_roundtrip() {
             for c in dest[0..sz_en].chunks(11) {
                 cd.push(c).unwrap();
             }
-            let sz_msg = cd.feed(0).unwrap().unwrap();
+            let sz_msg = match cd.feed(0) {
+                Ok(sz_msg) => sz_msg.unwrap(),
+                Err(written) => panic!("decoding failed, {} bytes written to output", written),
+            };
             sz_msg
         };
 
@@ -271,4 +274,18 @@ fn issue_15() {
 
     println!("{:?}  {:?}  {:?}", my_string_buf, cobs_buf, decoded_buf);
     assert_eq!(my_string_buf, decoded_buf);
+}
+
+#[test]
+fn issue_19_test_254_block_all_ones() {
+    let src: [u8; 254] = [1; 254];
+    let mut dest: [u8; 256] = [0; 256];
+    let encode_len = encode(&src, &mut dest);
+    //println!("Encoded buf [0..100]: {:x?}", &dest[0..100]);
+    //println!("Encoded buf [100..end]: {:x?}", &dest[100..]);
+    assert_eq!(encode_len, 255);
+    let mut decoded: [u8; 254] = [1; 254];
+    let decoded_len = decode(&dest, &mut decoded).expect("decoding failed");
+    assert_eq!(decoded_len, 254);
+    assert_eq!(&src, &decoded);
 }

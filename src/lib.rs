@@ -1,5 +1,8 @@
 #![cfg_attr(not(feature = "use_std"), no_std)]
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
 // In the future, don't do this.
 mod dec;
 mod enc;

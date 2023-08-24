@@ -1,5 +1,8 @@
-#[cfg(feature = "use_std")]
-use crate::max_encoding_length;
+#[cfg(feature = "alloc")]
+use {
+    crate::max_encoding_length,
+    alloc::{vec, vec::Vec},
+};
 
 /// The [`CobsEncoder`] type is used to encode a stream of bytes to a
 /// given mutable output slice. This is often useful when heap data
@@ -44,7 +47,7 @@ pub enum PushResult {
     /// Then, the last u8 in this tuple should be inserted at the end of the
     /// current output buffer. Finally, a placeholder byte should be inserted at
     /// the current end of the output buffer to be later modified
-    ModifyFromStartAndPushAndSkip((usize, u8, u8))
+    ModifyFromStartAndPushAndSkip((usize, u8, u8)),
 }
 
 impl Default for EncoderState {
@@ -72,7 +75,11 @@ impl EncoderState {
             self.offset_idx += 1;
 
             if 0xFF == self.num_bt_sent {
-                let ret = PushResult::ModifyFromStartAndPushAndSkip((self.code_idx, self.num_bt_sent, data));
+                let ret = PushResult::ModifyFromStartAndPushAndSkip((
+                    self.code_idx,
+                    self.num_bt_sent,
+                    data,
+                ));
                 self.num_bt_sent = 1;
                 self.code_idx += usize::from(self.offset_idx);
                 self.offset_idx = 1;
@@ -93,7 +100,6 @@ impl EncoderState {
 }
 
 impl<'a> CobsEncoder<'a> {
-
     /// Create a new streaming Cobs Encoder
     pub fn new(out_buf: &'a mut [u8]) -> CobsEncoder<'a> {
         CobsEncoder {
@@ -111,18 +117,14 @@ impl<'a> CobsEncoder<'a> {
             use PushResult::*;
             match self.state.push(*x) {
                 AddSingle(y) => {
-                    *self.dest.get_mut(self.dest_idx)
-                        .ok_or_else(|| ())? = y;
+                    *self.dest.get_mut(self.dest_idx).ok_or_else(|| ())? = y;
                 }
                 ModifyFromStartAndSkip((idx, mval)) => {
-                    *self.dest.get_mut(idx)
-                        .ok_or_else(|| ())? = mval;
+                    *self.dest.get_mut(idx).ok_or_else(|| ())? = mval;
                 }
                 ModifyFromStartAndPushAndSkip((idx, mval, nval1)) => {
-                    *self.dest.get_mut(idx)
-                        .ok_or_else(|| ())? = mval;
-                    *self.dest.get_mut(self.dest_idx)
-                        .ok_or_else(|| ())? = nval1;
+                    *self.dest.get_mut(idx).ok_or_else(|| ())? = mval;
+                    *self.dest.get_mut(self.dest_idx).ok_or_else(|| ())? = nval1;
                     self.dest_idx += 1;
                 }
             }
@@ -164,7 +166,7 @@ impl<'a> CobsEncoder<'a> {
 /// This function will panic if the `dest` buffer is not large enough for the
 /// encoded message. You can calculate the size the `dest` buffer needs to be with
 /// the `max_encoding_length` function.
-pub fn encode(source: &[u8], dest: &mut[u8]) -> usize {
+pub fn encode(source: &[u8], dest: &mut [u8]) -> usize {
     let mut enc = CobsEncoder::new(dest);
     enc.push(source).unwrap();
     enc.finalize().unwrap()
@@ -176,7 +178,7 @@ pub fn encode(source: &[u8], dest: &mut[u8]) -> usize {
 /// written to in the `dest` buffer.
 ///
 /// If the destination buffer does not have enough room, an error will be returned
-pub fn try_encode(source: &[u8], dest: &mut[u8]) -> Result<usize, ()> {
+pub fn try_encode(source: &[u8], dest: &mut [u8]) -> Result<usize, ()> {
     let mut enc = CobsEncoder::new(dest);
     enc.push(source)?;
     enc.finalize()
@@ -189,7 +191,7 @@ pub fn try_encode(source: &[u8], dest: &mut[u8]) -> Result<usize, ()> {
 /// of 0, then XOR-ing each byte of the encoded message with the chosen sentinel
 /// value. This will ensure that the sentinel value doesn't show up in the encoded
 /// message. See the paper "Consistent Overhead Byte Stuffing" for details.
-pub fn encode_with_sentinel(source: &[u8], dest: &mut[u8], sentinel: u8) -> usize {
+pub fn encode_with_sentinel(source: &[u8], dest: &mut [u8], sentinel: u8) -> usize {
     let encoded_size = encode(source, dest);
     for x in &mut dest[..encoded_size] {
         *x ^= sentinel;
@@ -197,7 +199,7 @@ pub fn encode_with_sentinel(source: &[u8], dest: &mut[u8], sentinel: u8) -> usiz
     return encoded_size;
 }
 
-#[cfg(feature = "use_std")]
+#[cfg(feature = "alloc")]
 /// Encodes the `source` buffer into a vector.
 pub fn encode_vec(source: &[u8]) -> Vec<u8> {
     let mut encoded = vec![0; max_encoding_length(source.len())];
@@ -206,7 +208,7 @@ pub fn encode_vec(source: &[u8]) -> Vec<u8> {
     return encoded;
 }
 
-#[cfg(feature = "use_std")]
+#[cfg(feature = "alloc")]
 /// Encodes the `source` buffer into a vector with an arbitrary sentinel value.
 pub fn encode_vec_with_sentinel(source: &[u8], sentinel: u8) -> Vec<u8> {
     let mut encoded = vec![0; max_encoding_length(source.len())];

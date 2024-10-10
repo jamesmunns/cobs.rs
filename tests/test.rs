@@ -2,8 +2,9 @@ extern crate cobs;
 extern crate quickcheck;
 
 use quickcheck::{quickcheck, TestResult};
-use cobs::{max_encoding_length, encode, decode, encode_vec, decode_vec};
-use cobs::{encode_vec_with_sentinel, decode_vec_with_sentinel};
+use cobs::{max_encoding_length, encode, decode};
+#[cfg(feature="use_std")]
+use cobs::{encode_vec, decode_vec, encode_vec_with_sentinel, decode_vec_with_sentinel};
 use cobs::{CobsEncoder, CobsDecoder};
 
 fn test_pair(source: Vec<u8>, encoded: Vec<u8>) {
@@ -22,6 +23,7 @@ fn test_pair(source: Vec<u8>, encoded: Vec<u8>) {
     assert_eq!(source, test_decoded);
 }
 
+#[cfg(feature="use_std")]
 fn test_roundtrip(source: Vec<u8>) {
     let encoded = encode_vec(&source);
     let decoded = decode_vec(&encoded).expect("decode_vec");
@@ -114,11 +116,13 @@ fn test_encode_4() {
     test_pair(vec![1], vec![2, 1])
 }
 
+#[cfg(feature="use_std")]
 #[test]
 fn test_roundtrip_1() {
     test_roundtrip(vec![1,2,3]);
 }
 
+#[cfg(feature="use_std")]
 #[test]
 fn test_roundtrip_2() {
     for i in 0..5usize {
@@ -130,6 +134,7 @@ fn test_roundtrip_2() {
     }
 }
 
+#[cfg(feature="use_std")]
 fn identity(source: Vec<u8>, sentinel: u8) -> TestResult {
     let encoded = encode_vec_with_sentinel(&source[..], sentinel);
 
@@ -153,11 +158,13 @@ fn identity(source: Vec<u8>, sentinel: u8) -> TestResult {
     }
 }
 
+#[cfg(feature="use_std")]
 #[test]
 fn test_encode_decode_with_sentinel() {
     quickcheck(identity as fn(Vec<u8>, u8) -> TestResult);
 }
 
+#[cfg(feature="use_std")]
 #[test]
 fn test_encode_decode() {
     fn identity_default_sentinel(source: Vec<u8>) -> TestResult {
@@ -246,6 +253,7 @@ fn wikipedia_ex_10() {
     test_pair(unencoded, encoded);
 }
 
+#[cfg(feature="use_std")]
 #[test]
 fn issue_15() {
     // Reported: https://github.com/awelkie/cobs.rs/issues/15

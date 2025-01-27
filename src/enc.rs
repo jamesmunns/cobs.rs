@@ -10,6 +10,7 @@ pub struct CobsEncoder<'a> {
     dest: &'a mut [u8],
     dest_idx: usize,
     state: EncoderState,
+    might_be_done: bool,
 }
 
 /// The [`EncoderState`] is used to track the current state of a
@@ -43,8 +44,9 @@ pub enum PushResult {
     /// The byte at the given index should be replaced with the given byte.
     /// Then, the last u8 in this tuple should be inserted at the end of the
     /// current output buffer. Finally, a placeholder byte should be inserted at
-    /// the current end of the output buffer to be later modified
-    ModifyFromStartAndPushAndSkip((usize, u8, u8)),
+    /// the current end of the output buffer to be later modified if the encoding process is
+    /// not done yet.
+    ModifyFromStartAndPushAndSkip((usize, u8, u8))
 }
 
 impl Default for EncoderState {
@@ -103,6 +105,7 @@ impl<'a> CobsEncoder<'a> {
             dest: out_buf,
             dest_idx: 1,
             state: EncoderState::default(),
+            might_be_done: false,
         }
     }
 
@@ -110,9 +113,16 @@ impl<'a> CobsEncoder<'a> {
     pub fn push(&mut self, data: &[u8]) -> Result<(), ()> {
         // TODO: could probably check if this would fit without
         // iterating through all data
-        for x in data {
+
+        // There was the possibility that the encoding process is done, but more data is pushed
+        // instead of a `finalize` call, so the destination index needs to be incremented.
+        if self.might_be_done {
+            self.dest_idx += 1;
+            self.might_be_done = false;
+        }
+        for (slice_idx, val) in data.iter().enumerate() {
             use PushResult::*;
-            match self.state.push(*x) {
+            match self.state.push(*val) {
                 AddSingle(y) => {
                     *self.dest.get_mut(self.dest_idx).ok_or(())? = y;
                 }
@@ -122,7 +132,14 @@ impl<'a> CobsEncoder<'a> {
                 ModifyFromStartAndPushAndSkip((idx, mval, nval1)) => {
                     *self.dest.get_mut(idx).ok_or(())? = mval;
                     *self.dest.get_mut(self.dest_idx).ok_or(())? = nval1;
-                    self.dest_idx += 1;
+                    // Do not increase index if these is the possibility that we are finished.
+                    if slice_idx == data.len() - 1 {
+                        // If push is called again, the index will be incremented. If finalize
+                        // is called, there is no need to increment the index.
+                        self.might_be_done = true;
+                    } else {
+                        self.dest_idx += 1;
+                    }
                 }
             }
 

@@ -163,7 +163,7 @@ impl<'a> CobsDecoder<'a> {
     ///
     /// * Ok(None) - State machine okay, more data needed
     /// * Ok(Some(N)) - A message of N bytes was successfully decoded
-    /// * Err(M) - Message decoding failed, and M bytes were written to output
+    /// * Err([DecodeError]) - Message decoding failed
     ///
     /// NOTE: Sentinel value must be included in the input to this function for the
     /// decoding to complete
@@ -187,7 +187,7 @@ impl<'a> CobsDecoder<'a> {
     /// * Ok(None) - State machine okay, more data needed
     /// * Ok(Some((N, M))) - A message of N bytes was successfully decoded,
     ///     using M bytes from `data` (and earlier data)
-    /// * Err(J) - Message decoding failed, and J bytes were written to output
+    /// * Err([DecodeError]) - Message decoding failed
     ///
     /// NOTE: Sentinel value must be included in the input to this function for the
     /// decoding to complete

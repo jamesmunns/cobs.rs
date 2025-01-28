@@ -30,8 +30,8 @@ pub enum DecoderState {
     GrabChain(u8),
 }
 
-fn add(to: &mut [u8], idx: usize, data: u8) -> Result<(), ()> {
-    *to.get_mut(idx).ok_or(())? = data;
+fn add(to: &mut [u8], idx: usize, data: u8) -> Result<(), DecodeError> {
+    *to.get_mut(idx).ok_or(DecodeError::TargetBufTooSmall)? = data;
     Ok(())
 }
 
@@ -53,6 +53,14 @@ pub enum DecodeResult {
     DataContinue(u8),
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum DecodeError {
+    #[error("frame with invalid format, written {decoded_bytes:?} to decoded buffer")]
+    InvalidFrame { decoded_bytes: Option<usize> },
+    #[error("target buffer too small")]
+    TargetBufTooSmall,
+}
+
 impl DecoderState {
     /// Push a single encoded byte into the state machine. If the input was
     /// unexpected, such as an early end of a framed message segment, an Error will
@@ -63,7 +71,7 @@ impl DecoderState {
     ///
     /// NOTE: Sentinel value must be included in the input to this function for the
     /// decoding to complete
-    pub fn feed(&mut self, data: u8) -> Result<DecodeResult, ()> {
+    pub fn feed(&mut self, data: u8) -> Result<DecodeResult, DecodeError> {
         use DecodeResult::*;
         use DecoderState::*;
         let (ret, state) = match (&self, data) {
@@ -97,7 +105,12 @@ impl DecoderState {
 
             // We were not expecting the sequence to terminate, but here we are.
             // Report an error due to early terminated message
-            (Grab(_), 0) => (Err(()), Idle),
+            (Grab(_), 0) => (
+                Err(DecodeError::InvalidFrame {
+                    decoded_bytes: None,
+                }),
+                Idle,
+            ),
 
             // We have not yet reached the end of a data run, decrement the run
             // counter, and place the byte into the decoded output
@@ -118,7 +131,12 @@ impl DecoderState {
 
             // We were not expecting the sequence to terminate, but here we are.
             // Report an error due to early terminated message
-            (GrabChain(_), 0) => (Err(()), Idle),
+            (GrabChain(_), 0) => (
+                Err(DecodeError::InvalidFrame {
+                    decoded_bytes: None,
+                }),
+                Idle,
+            ),
 
             // We have not yet reached the end of a data run, decrement the run
             // counter, and place the byte into the decoded output
@@ -149,12 +167,14 @@ impl<'a> CobsDecoder<'a> {
     ///
     /// NOTE: Sentinel value must be included in the input to this function for the
     /// decoding to complete
-    pub fn feed(&mut self, data: u8) -> Result<Option<usize>, usize> {
+    pub fn feed(&mut self, data: u8) -> Result<Option<usize>, DecodeError> {
         match self.state.feed(data) {
-            Err(()) => Err(self.dest_idx),
+            Err(_) => Err(DecodeError::InvalidFrame {
+                decoded_bytes: Some(self.dest_idx),
+            }),
             Ok(DecodeResult::NoData) => Ok(None),
             Ok(DecodeResult::DataContinue(n)) => {
-                add(self.dest, self.dest_idx, n).map_err(|_| self.dest_idx)?;
+                add(self.dest, self.dest_idx, n)?;
                 self.dest_idx += 1;
                 Ok(None)
             }
@@ -171,10 +191,10 @@ impl<'a> CobsDecoder<'a> {
     ///
     /// NOTE: Sentinel value must be included in the input to this function for the
     /// decoding to complete
-    pub fn push(&mut self, data: &[u8]) -> Result<Option<(usize, usize)>, usize> {
+    pub fn push(&mut self, data: &[u8]) -> Result<Option<(usize, usize)>, DecodeError> {
         for (consumed_idx, d) in data.iter().enumerate() {
-            let x = self.feed(*d);
-            if let Some(decoded_bytes_ct) = x? {
+            let opt_decoded_bytes = self.feed(*d)?;
+            if let Some(decoded_bytes_ct) = opt_decoded_bytes {
                 // convert from index to number of bytes consumed
                 return Ok(Some((decoded_bytes_ct, consumed_idx + 1)));
             }
@@ -201,7 +221,7 @@ macro_rules! decode_raw (
             let code = $src[source_index];
 
             if source_index + code as usize > src_end && code != 1 {
-                return Err(());
+                return Err(DecodeError::InvalidFrame { decoded_bytes: Some(dest_index) });
             }
 
             source_index += 1;
@@ -234,11 +254,11 @@ macro_rules! decode_raw (
 ///
 /// This will return `Err(())` if there was a decoding error. Otherwise,
 /// it will return `Ok(n)` where `n` is the length of the decoded message.
-pub fn decode(source: &[u8], dest: &mut [u8]) -> Result<usize, ()> {
+pub fn decode(source: &[u8], dest: &mut [u8]) -> Result<usize, DecodeError> {
     let mut dec = CobsDecoder::new(dest);
 
     // Did we decode a message, using some or all of the buffer?
-    if let Some((d_used, _s_used)) = dec.push(source).or(Err(()))? {
+    if let Some((d_used, _s_used)) = dec.push(source)? {
         return Ok(d_used);
     }
 
@@ -247,13 +267,15 @@ pub fn decode(source: &[u8], dest: &mut [u8]) -> Result<usize, ()> {
     // complete the decoding.
     if source.last() != Some(&0) {
         // Explicitly push sentinel of zero
-        if let Some((d_used, _s_used)) = dec.push(&[0]).or(Err(()))? {
+        if let Some((d_used, _s_used)) = dec.push(&[0])? {
             return Ok(d_used);
         }
     }
 
     // Nope, no early message, no missing terminator, just failed to decode
-    Err(())
+    Err(DecodeError::InvalidFrame {
+        decoded_bytes: Some(dec.dest_idx),
+    })
 }
 
 /// A report of the source and destination bytes used during in-place decoding
@@ -273,7 +295,7 @@ pub struct DecodeReport {
 /// This is the same function as `decode_in_place`, but provides a report
 /// of both the number of source bytes consumed as well as the size of the
 /// destination used.
-pub fn decode_in_place_report(buff: &mut [u8]) -> Result<DecodeReport, ()> {
+pub fn decode_in_place_report(buff: &mut [u8]) -> Result<DecodeReport, DecodeError> {
     Ok(decode_raw!(buff, buff))
 }
 
@@ -284,7 +306,7 @@ pub fn decode_in_place_report(buff: &mut [u8]) -> Result<DecodeReport, ()> {
 ///
 /// The returned `usize` is the number of bytes used for the DECODED value,
 /// NOT the number of source bytes consumed during decoding.
-pub fn decode_in_place(buff: &mut [u8]) -> Result<usize, ()> {
+pub fn decode_in_place(buff: &mut [u8]) -> Result<usize, DecodeError> {
     Ok(decode_raw!(buff, buff).dst_used)
 }
 
@@ -296,7 +318,11 @@ pub fn decode_in_place(buff: &mut [u8]) -> Result<usize, ()> {
 ///
 /// The returned `usize` is the number of bytes used for the DECODED value,
 /// NOT the number of source bytes consumed during decoding.
-pub fn decode_with_sentinel(source: &[u8], dest: &mut [u8], sentinel: u8) -> Result<usize, ()> {
+pub fn decode_with_sentinel(
+    source: &[u8],
+    dest: &mut [u8],
+    sentinel: u8,
+) -> Result<usize, DecodeError> {
     for (x, y) in source.iter().zip(dest.iter_mut()) {
         *y = *x ^ sentinel;
     }
@@ -307,7 +333,7 @@ pub fn decode_with_sentinel(source: &[u8], dest: &mut [u8], sentinel: u8) -> Res
 ///
 /// The returned `usize` is the number of bytes used for the DECODED value,
 /// NOT the number of source bytes consumed during decoding.
-pub fn decode_in_place_with_sentinel(buff: &mut [u8], sentinel: u8) -> Result<usize, ()> {
+pub fn decode_in_place_with_sentinel(buff: &mut [u8], sentinel: u8) -> Result<usize, DecodeError> {
     for x in buff.iter_mut() {
         *x ^= sentinel;
     }
@@ -316,26 +342,18 @@ pub fn decode_in_place_with_sentinel(buff: &mut [u8], sentinel: u8) -> Result<us
 
 #[cfg(feature = "use_std")]
 /// Decodes the `source` buffer into a vector.
-pub fn decode_vec(source: &[u8]) -> Result<Vec<u8>, ()> {
+pub fn decode_vec(source: &[u8]) -> Result<Vec<u8>, DecodeError> {
     let mut decoded = vec![0; source.len()];
-    match decode(source, &mut decoded[..]) {
-        Ok(n) => {
-            decoded.truncate(n);
-            Ok(decoded)
-        }
-        Err(()) => Err(()),
-    }
+    let n = decode(source, &mut decoded[..])?;
+    decoded.truncate(n);
+    Ok(decoded)
 }
 
 #[cfg(feature = "use_std")]
 /// Decodes the `source` buffer into a vector with an arbitrary sentinel value.
-pub fn decode_vec_with_sentinel(source: &[u8], sentinel: u8) -> Result<Vec<u8>, ()> {
+pub fn decode_vec_with_sentinel(source: &[u8], sentinel: u8) -> Result<Vec<u8>, DecodeError> {
     let mut decoded = vec![0; source.len()];
-    match decode_with_sentinel(source, &mut decoded[..], sentinel) {
-        Ok(n) => {
-            decoded.truncate(n);
-            Ok(decoded)
-        }
-        Err(()) => Err(()),
-    }
+    let n = decode_with_sentinel(source, &mut decoded[..], sentinel)?;
+    decoded.truncate(n);
+    Ok(decoded)
 }

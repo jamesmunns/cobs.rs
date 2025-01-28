@@ -13,6 +13,10 @@ pub struct CobsEncoder<'a> {
     might_be_done: bool,
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("out of bounds error during encoding")]
+pub struct DestBufTooSmallError;
+
 /// The [`EncoderState`] is used to track the current state of a
 /// streaming encoder. This struct does not contain the output buffer
 /// (or a reference to one), and can be used when streaming the encoded
@@ -46,7 +50,7 @@ pub enum PushResult {
     /// current output buffer. Finally, a placeholder byte should be inserted at
     /// the current end of the output buffer to be later modified if the encoding process is
     /// not done yet.
-    ModifyFromStartAndPushAndSkip((usize, u8, u8))
+    ModifyFromStartAndPushAndSkip((usize, u8, u8)),
 }
 
 impl Default for EncoderState {
@@ -110,7 +114,7 @@ impl<'a> CobsEncoder<'a> {
     }
 
     /// Push a slice of data to be encoded
-    pub fn push(&mut self, data: &[u8]) -> Result<(), ()> {
+    pub fn push(&mut self, data: &[u8]) -> Result<(), DestBufTooSmallError> {
         // TODO: could probably check if this would fit without
         // iterating through all data
 
@@ -124,14 +128,20 @@ impl<'a> CobsEncoder<'a> {
             use PushResult::*;
             match self.state.push(*val) {
                 AddSingle(y) => {
-                    *self.dest.get_mut(self.dest_idx).ok_or(())? = y;
+                    *self
+                        .dest
+                        .get_mut(self.dest_idx)
+                        .ok_or(DestBufTooSmallError)? = y;
                 }
                 ModifyFromStartAndSkip((idx, mval)) => {
-                    *self.dest.get_mut(idx).ok_or(())? = mval;
+                    *self.dest.get_mut(idx).ok_or(DestBufTooSmallError)? = mval;
                 }
                 ModifyFromStartAndPushAndSkip((idx, mval, nval1)) => {
-                    *self.dest.get_mut(idx).ok_or(())? = mval;
-                    *self.dest.get_mut(self.dest_idx).ok_or(())? = nval1;
+                    *self.dest.get_mut(idx).ok_or(DestBufTooSmallError)? = mval;
+                    *self
+                        .dest
+                        .get_mut(self.dest_idx)
+                        .ok_or(DestBufTooSmallError)? = nval1;
                     // Do not increase index if these is the possibility that we are finished.
                     if slice_idx == data.len() - 1 {
                         // If push is called again, the index will be incremented. If finalize
@@ -152,9 +162,9 @@ impl<'a> CobsEncoder<'a> {
 
     /// Complete encoding of the output message. Does NOT terminate
     /// the message with the sentinel value
-    pub fn finalize(self) -> Result<usize, ()> {
+    pub fn finalize(self) -> usize {
         if self.dest_idx == 1 {
-            return Ok(0);
+            return 0;
         }
 
         // Get the last index that needs to be fixed
@@ -166,7 +176,7 @@ impl<'a> CobsEncoder<'a> {
             *i = mval;
         }
 
-        Ok(self.dest_idx)
+        self.dest_idx
     }
 }
 
@@ -183,7 +193,7 @@ impl<'a> CobsEncoder<'a> {
 pub fn encode(source: &[u8], dest: &mut [u8]) -> usize {
     let mut enc = CobsEncoder::new(dest);
     enc.push(source).unwrap();
-    enc.finalize().unwrap()
+    enc.finalize()
 }
 
 /// Attempts to encode the `source` buffer into the `dest` buffer.
@@ -192,10 +202,10 @@ pub fn encode(source: &[u8], dest: &mut [u8]) -> usize {
 /// written to in the `dest` buffer.
 ///
 /// If the destination buffer does not have enough room, an error will be returned
-pub fn try_encode(source: &[u8], dest: &mut [u8]) -> Result<usize, ()> {
+pub fn try_encode(source: &[u8], dest: &mut [u8]) -> Result<usize, DestBufTooSmallError> {
     let mut enc = CobsEncoder::new(dest);
     enc.push(source)?;
-    enc.finalize()
+    Ok(enc.finalize())
 }
 
 /// Encodes the `source` buffer into the `dest` buffer using an

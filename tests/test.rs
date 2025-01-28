@@ -1,7 +1,7 @@
 extern crate cobs;
 extern crate quickcheck;
 
-use cobs::{decode, decode_vec, encode, encode_vec, max_encoding_length};
+use cobs::{decode, decode_vec, encode, encode_vec, max_encoding_length, DecodeError};
 use cobs::{decode_vec_with_sentinel, encode_vec_with_sentinel};
 use cobs::{CobsDecoder, CobsEncoder};
 use quickcheck::{quickcheck, TestResult};
@@ -35,10 +35,11 @@ fn decode_malforemd() {
         0, 0, 0, 0,
     ];
     let mut dest_buf: [u8; 32] = [0; 32];
-    if let Err(()) = decode(&malformed_buf, &mut dest_buf) {
-        return;
+    if let Err(DecodeError::InvalidFrame { decoded_bytes }) = decode(&malformed_buf, &mut dest_buf)
+    {
+        assert_eq!(decoded_bytes, Some(7));
     } else {
-        assert!(false, "invalid test result.");
+        panic!("decoding worked when it should not have");
     }
 }
 
@@ -55,8 +56,7 @@ fn stream_roundtrip() {
             for c in source.chunks(17) {
                 ce.push(c).unwrap();
             }
-            let sz = ce.finalize().unwrap();
-            sz
+            ce.finalize()
         };
 
         let mut decoded = source.clone();
@@ -67,11 +67,11 @@ fn stream_roundtrip() {
             for c in dest[0..sz_en].chunks(11) {
                 cd.push(c).unwrap();
             }
-            let sz_msg = match cd.feed(0) {
+
+            match cd.feed(0) {
                 Ok(sz_msg) => sz_msg.unwrap(),
                 Err(written) => panic!("decoding failed, {} bytes written to output", written),
-            };
-            sz_msg
+            }
         };
 
         assert_eq!(sz_de, source.len());

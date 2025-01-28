@@ -14,7 +14,10 @@ edition = "2018"
 
 [features]
 default = ["use_std"]
-use_std = []
+use_std = ["thiserror/std"]
+
+[dependencies]
+thiserror = { version = "2", default-features = false }
 
 [dev-dependencies]
 quickcheck = "^0.5.0"

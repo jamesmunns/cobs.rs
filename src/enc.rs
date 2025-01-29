@@ -1,5 +1,8 @@
-#[cfg(feature = "use_std")]
-use crate::max_encoding_length;
+#[cfg(feature = "alloc")]
+use {
+    crate::max_encoding_length,
+    alloc::{vec, vec::Vec},
+};
 
 /// The [`CobsEncoder`] type is used to encode a stream of bytes to a
 /// given mutable output slice. This is often useful when heap data
@@ -238,7 +241,7 @@ pub fn encode_with_sentinel(source: &[u8], dest: &mut [u8], sentinel: u8) -> usi
     encoded_size
 }
 
-#[cfg(feature = "use_std")]
+#[cfg(feature = "alloc")]
 /// Encodes the `source` buffer into a vector, using the [encode] function.
 pub fn encode_vec(source: &[u8]) -> Vec<u8> {
     let mut encoded = vec![0; max_encoding_length(source.len())];
@@ -247,7 +250,7 @@ pub fn encode_vec(source: &[u8]) -> Vec<u8> {
     encoded
 }
 
-#[cfg(feature = "use_std")]
+#[cfg(feature = "alloc")]
 /// Encodes the `source` buffer into a vector with an arbitrary sentinel value, using the
 /// [encode_with_sentinel] function.
 pub fn encode_vec_with_sentinel(source: &[u8], sentinel: u8) -> Vec<u8> {

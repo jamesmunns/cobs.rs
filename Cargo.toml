@@ -14,7 +14,8 @@ edition = "2021"
 
 [features]
 default = ["use_std"]
-use_std = ["thiserror/std"]
+use_std = ["alloc", "thiserror/std"]
+alloc = []
 
 [dependencies]
 thiserror = { version = "2", default-features = false }

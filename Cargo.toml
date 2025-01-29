@@ -10,7 +10,7 @@ description = """
     in a serial communication channel. """
 repository = "https://github.com/jamesmunns/cobs.rs"
 keywords = ["consistent", "overhead", "byte", "stuffing"]
-edition = "2018"
+edition = "2021"
 
 [features]
 default = ["use_std"]

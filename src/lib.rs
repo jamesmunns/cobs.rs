@@ -23,7 +23,7 @@ pub const fn max_encoding_length(source_len: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use crate::{max_encoding_length, max_encoding_overhead};
+    use super::*;
 
     // Usable in const context
     const ENCODED_BUF: [u8; max_encoding_length(5)] = [0; max_encoding_length(5)];

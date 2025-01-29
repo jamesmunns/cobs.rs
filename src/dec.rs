@@ -204,48 +204,6 @@ impl<'a> CobsDecoder<'a> {
     }
 }
 
-// This needs to be a macro because `src` and `dst` could be the same or different.
-macro_rules! decode_raw (
-    ($src:ident, $dst:ident) => ({
-        let mut source_index = 0;
-        let mut dest_index = 0;
-
-        // Stop at the first terminator, if any
-        let src_end = if let Some(end) = $src.iter().position(|b| *b == 0) {
-            end
-        } else {
-            $src.len()
-        };
-
-        while source_index < src_end {
-            let code = $src[source_index];
-
-            if source_index + code as usize > src_end && code != 1 {
-                return Err(DecodeError::InvalidFrame { decoded_bytes: Some(dest_index) });
-            }
-
-            source_index += 1;
-
-            // TODO: There are potential `panic!`s in these dest_index offsets
-            for _ in 1..code {
-                $dst[dest_index] = $src[source_index];
-                source_index += 1;
-                dest_index += 1;
-            }
-
-            if 0xFF != code && source_index < src_end {
-                $dst[dest_index] = 0;
-                dest_index += 1;
-            }
-        }
-
-        DecodeReport {
-            dst_used: dest_index,
-            src_used: source_index,
-        }
-    })
-);
-
 /// Decodes the `source` buffer into the `dest` buffer.
 ///
 /// This function uses the typical sentinel value of 0.
@@ -292,22 +250,62 @@ pub struct DecodeReport {
 
 /// Decodes a message in-place.
 ///
-/// This is the same function as `decode_in_place`, but provides a report
+/// This is the same function as [decode_in_place], but provides a report
 /// of both the number of source bytes consumed as well as the size of the
 /// destination used.
 pub fn decode_in_place_report(buff: &mut [u8]) -> Result<DecodeReport, DecodeError> {
-    Ok(decode_raw!(buff, buff))
+    let mut source_index = 0;
+    let mut dest_index = 0;
+
+    // Stop at the first terminator, if any
+    let src_end = if let Some(end) = buff.iter().position(|b| *b == 0) {
+        end
+    } else {
+        buff.len()
+    };
+
+    while source_index < src_end {
+        let code = buff[source_index];
+
+        if source_index + code as usize > src_end && code != 1 {
+            return Err(DecodeError::InvalidFrame {
+                decoded_bytes: Some(dest_index),
+            });
+        }
+
+        source_index += 1;
+
+        for _ in 1..code {
+            *buff
+                .get_mut(dest_index)
+                .ok_or(DecodeError::TargetBufTooSmall)? = buff[source_index];
+            source_index += 1;
+            dest_index += 1;
+        }
+
+        if 0xFF != code && source_index < src_end {
+            *buff
+                .get_mut(dest_index)
+                .ok_or(DecodeError::TargetBufTooSmall)? = 0;
+            dest_index += 1;
+        }
+    }
+
+    Ok(DecodeReport {
+        dst_used: dest_index,
+        src_used: source_index,
+    })
 }
 
 /// Decodes a message in-place.
 ///
-/// This is the same function as `decode`, but replaces the encoded message
+/// This is the same function as [decode], but replaces the encoded message
 /// with the decoded message instead of writing to another buffer.
 ///
 /// The returned `usize` is the number of bytes used for the DECODED value,
 /// NOT the number of source bytes consumed during decoding.
 pub fn decode_in_place(buff: &mut [u8]) -> Result<usize, DecodeError> {
-    Ok(decode_raw!(buff, buff).dst_used)
+    decode_in_place_report(buff).map(|r| r.dst_used)
 }
 
 /// Decodes the `source` buffer into the `dest` buffer using an arbitrary sentinel value.
@@ -356,4 +354,26 @@ pub fn decode_vec_with_sentinel(source: &[u8], sentinel: u8) -> Result<Vec<u8>, 
     let n = decode_with_sentinel(source, &mut decoded[..], sentinel)?;
     decoded.truncate(n);
     Ok(decoded)
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn decode_malforemd() {
+        let malformed_buf: [u8; 32] = [
+            68, 69, 65, 68, 66, 69, 69, 70, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0,
+        ];
+        let mut dest_buf: [u8; 32] = [0; 32];
+        if let Err(DecodeError::InvalidFrame { decoded_bytes }) =
+            decode(&malformed_buf, &mut dest_buf)
+        {
+            assert_eq!(decoded_bytes, Some(7));
+        } else {
+            panic!("decoding worked when it should not have");
+        }
+    }
 }

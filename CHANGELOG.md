@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   [#20](https://github.com/jamesmunns/cobs.rs/pull/20)
 - Unittests for `decode_in_place` and `decode_in_place_report`.
   [#36](https://github.com/jamesmunns/cobs.rs/pull/36)
+- New `std` feature, deprecate the `use_std` feature but kept it for backwards
+  compatiblity.
+- New `alloc` feature which enables support for APIs returning `Vec`s.
+- Documentation of the new `std` and `alloc` features in the README.
 
 ## Changed
 

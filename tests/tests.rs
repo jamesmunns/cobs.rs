@@ -1,5 +1,4 @@
 use cobs::*;
-use quickcheck::{quickcheck, TestResult};
 
 fn test_pair(source: &[u8], encoded: &[u8]) {
     test_encode_decode_free_functions(source, encoded);
@@ -30,12 +29,6 @@ fn test_decode_in_place(source: &[u8], encoded: &[u8]) {
     test_encoded = encoded.to_vec();
     let dst_used = decode_in_place(&mut test_encoded).unwrap();
     assert_eq!(&test_encoded[0..dst_used], source);
-}
-
-fn test_roundtrip(source: &[u8]) {
-    let encoded = encode_vec(source);
-    let decoded = decode_vec(&encoded).expect("decode_vec");
-    assert_eq!(source, decoded);
 }
 
 #[test]
@@ -110,58 +103,6 @@ fn test_encode_3() {
 #[test]
 fn test_encode_4() {
     test_pair(&[1], &[2, 1])
-}
-
-#[test]
-fn test_roundtrip_1() {
-    test_roundtrip(&[1, 2, 3]);
-}
-
-#[test]
-fn test_roundtrip_2() {
-    for i in 0..5usize {
-        let mut v = Vec::new();
-        for j in 0..252 + i {
-            v.push(j as u8);
-        }
-        test_roundtrip(&v);
-    }
-}
-
-fn identity(source: Vec<u8>, sentinel: u8) -> TestResult {
-    let encoded = encode_vec_with_sentinel(&source[..], sentinel);
-
-    // Check that the sentinel doesn't show up in the encoded message
-    for x in encoded.iter() {
-        if *x == sentinel {
-            return TestResult::error("Sentinel found in encoded message.");
-        }
-    }
-
-    // Check that the decoding the encoded message returns the original message
-    match decode_vec_with_sentinel(&encoded[..], sentinel) {
-        Ok(decoded) => {
-            if source == decoded {
-                TestResult::passed()
-            } else {
-                TestResult::failed()
-            }
-        }
-        Err(_) => TestResult::error("Decoding Error"),
-    }
-}
-
-#[test]
-fn test_encode_decode_with_sentinel() {
-    quickcheck(identity as fn(Vec<u8>, u8) -> TestResult);
-}
-
-#[test]
-fn test_encode_decode() {
-    fn identity_default_sentinel(source: Vec<u8>) -> TestResult {
-        identity(source, 0)
-    }
-    quickcheck(identity_default_sentinel as fn(Vec<u8>) -> TestResult);
 }
 
 #[test]
@@ -275,4 +216,68 @@ fn issue_19_test_254_block_all_ones() {
     let decoded_len = decode(&dest, &mut decoded).expect("decoding failed");
     assert_eq!(decoded_len, 254);
     assert_eq!(&src, &decoded);
+}
+
+#[cfg(feature = "alloc")]
+mod alloc_tests {
+    use super::*;
+    use quickcheck::{quickcheck, TestResult};
+
+    #[test]
+    fn test_roundtrip_1() {
+        test_roundtrip(&[1, 2, 3]);
+    }
+
+    #[test]
+    fn test_roundtrip_2() {
+        for i in 0..5usize {
+            let mut v = Vec::new();
+            for j in 0..252 + i {
+                v.push(j as u8);
+            }
+            test_roundtrip(&v);
+        }
+    }
+
+    fn identity(source: Vec<u8>, sentinel: u8) -> TestResult {
+        let encoded = encode_vec_with_sentinel(&source[..], sentinel);
+
+        // Check that the sentinel doesn't show up in the encoded message
+        for x in encoded.iter() {
+            if *x == sentinel {
+                return TestResult::error("Sentinel found in encoded message.");
+            }
+        }
+
+        // Check that the decoding the encoded message returns the original message
+        match decode_vec_with_sentinel(&encoded[..], sentinel) {
+            Ok(decoded) => {
+                if source == decoded {
+                    TestResult::passed()
+                } else {
+                    TestResult::failed()
+                }
+            }
+            Err(_) => TestResult::error("Decoding Error"),
+        }
+    }
+
+    #[test]
+    fn test_encode_decode_with_sentinel() {
+        quickcheck(identity as fn(Vec<u8>, u8) -> TestResult);
+    }
+
+    #[test]
+    fn test_encode_decode() {
+        fn identity_default_sentinel(source: Vec<u8>) -> TestResult {
+            identity(source, 0)
+        }
+        quickcheck(identity_default_sentinel as fn(Vec<u8>) -> TestResult);
+    }
+
+    fn test_roundtrip(source: &[u8]) {
+        let encoded = encode_vec(source);
+        let decoded = decode_vec(&encoded).expect("decode_vec");
+        assert_eq!(source, decoded);
+    }
 }

@@ -242,6 +242,10 @@ mod alloc_tests {
     fn identity(source: Vec<u8>, sentinel: u8) -> TestResult {
         let encoded = encode_vec_with_sentinel(&source[..], sentinel);
 
+        if source.is_empty() {
+            return TestResult::passed();
+        }
+
         // Check that the sentinel doesn't show up in the encoded message
         for x in encoded.iter() {
             if *x == sentinel {
@@ -258,7 +262,7 @@ mod alloc_tests {
                     TestResult::failed()
                 }
             }
-            Err(_) => TestResult::error("Decoding Error"),
+            Err(_) => TestResult::error("decoding Error"),
         }
     }
 

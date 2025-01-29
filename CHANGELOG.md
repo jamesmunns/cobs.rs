@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `decode_in_place` and `decode_in_place_report` now check the destination index and return
   an appropriate `DecodeError` instead of panicking if an out-of-bounds access happens.
   [#36](https://github.com/jamesmunns/cobs.rs/pull/36)
+- Consistent behaviour of decode functions for empty input: All funtions now return
+  `DecodeError::FrameEmpty`.
+  [#39](https://github.com/jamesmunns/cobs.rs/pull/39)
 
 ## Fixed
 

@@ -182,14 +182,18 @@ impl<'a> CobsEncoder<'a> {
 
 /// Encodes the `source` buffer into the `dest` buffer.
 ///
-/// This function uses the typical sentinel value of 0. It returns the number of bytes
-/// written to in the `dest` buffer.
+/// This function assumes the typical sentinel value of 0, but does not terminate the encoded
+/// message with the sentinel value. This should be done by the caller to ensure proper framing.
+///
+/// # Returns
+///
+/// The number of bytes written to in the `dest` buffer.
 ///
 /// # Panics
 ///
 /// This function will panic if the `dest` buffer is not large enough for the
 /// encoded message. You can calculate the size the `dest` buffer needs to be with
-/// the `max_encoding_length` function.
+/// the [max_encoding_length] function.
 pub fn encode(source: &[u8], dest: &mut [u8]) -> usize {
     let mut enc = CobsEncoder::new(dest);
     enc.push(source).unwrap();
@@ -198,10 +202,14 @@ pub fn encode(source: &[u8], dest: &mut [u8]) -> usize {
 
 /// Attempts to encode the `source` buffer into the `dest` buffer.
 ///
-/// This function uses the typical sentinel value of 0. It returns the number of bytes
-/// written to in the `dest` buffer.
+/// This function assumes the typical sentinel value of 0, but does not terminate the encoded
+/// message with the sentinel value. This should be done by the caller to ensure proper framing.
 ///
-/// If the destination buffer does not have enough room, an error will be returned
+/// # Returns
+///
+/// The number of bytes written to in the `dest` buffer.
+///
+/// If the destination buffer does not have enough room, an error will be returned.
 pub fn try_encode(source: &[u8], dest: &mut [u8]) -> Result<usize, DestBufTooSmallError> {
     let mut enc = CobsEncoder::new(dest);
     enc.push(source)?;
@@ -215,6 +223,13 @@ pub fn try_encode(source: &[u8], dest: &mut [u8]) -> Result<usize, DestBufTooSma
 /// of 0, then XOR-ing each byte of the encoded message with the chosen sentinel
 /// value. This will ensure that the sentinel value doesn't show up in the encoded
 /// message. See the paper "Consistent Overhead Byte Stuffing" for details.
+///
+/// This function does not terminate the encoded message with the sentinel value. This should be
+/// done by the caller to ensure proper framing.
+///
+/// # Returns
+///
+/// The number of bytes written to in the `dest` buffer.
 pub fn encode_with_sentinel(source: &[u8], dest: &mut [u8], sentinel: u8) -> usize {
     let encoded_size = encode(source, dest);
     for x in &mut dest[..encoded_size] {
@@ -224,7 +239,7 @@ pub fn encode_with_sentinel(source: &[u8], dest: &mut [u8], sentinel: u8) -> usi
 }
 
 #[cfg(feature = "use_std")]
-/// Encodes the `source` buffer into a vector.
+/// Encodes the `source` buffer into a vector, using the [encode] function.
 pub fn encode_vec(source: &[u8]) -> Vec<u8> {
     let mut encoded = vec![0; max_encoding_length(source.len())];
     let encoded_len = encode(source, &mut encoded[..]);
@@ -233,7 +248,8 @@ pub fn encode_vec(source: &[u8]) -> Vec<u8> {
 }
 
 #[cfg(feature = "use_std")]
-/// Encodes the `source` buffer into a vector with an arbitrary sentinel value.
+/// Encodes the `source` buffer into a vector with an arbitrary sentinel value, using the
+/// [encode_with_sentinel] function.
 pub fn encode_vec_with_sentinel(source: &[u8], sentinel: u8) -> Vec<u8> {
     let mut encoded = vec![0; max_encoding_length(source.len())];
     let encoded_len = encode_with_sentinel(source, &mut encoded[..], sentinel);

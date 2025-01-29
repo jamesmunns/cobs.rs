@@ -1,46 +1,41 @@
-extern crate cobs;
-extern crate quickcheck;
-
-use cobs::{decode, decode_vec, encode, encode_vec, max_encoding_length, DecodeError};
-use cobs::{decode_vec_with_sentinel, encode_vec_with_sentinel};
-use cobs::{CobsDecoder, CobsEncoder};
+use cobs::*;
 use quickcheck::{quickcheck, TestResult};
 
-fn test_pair(source: Vec<u8>, encoded: Vec<u8>) {
-    let mut test_encoded = encoded.clone();
-    let mut test_decoded = source.clone();
+fn test_pair(source: &[u8], encoded: &[u8]) {
+    test_encode_decode_free_functions(source, encoded);
+    test_decode_in_place(source, encoded);
+}
+
+fn test_encode_decode_free_functions(source: &[u8], encoded: &[u8]) {
+    let mut test_encoded = encoded.to_vec();
+    let mut test_decoded = source.to_vec();
 
     // Mangle data to ensure data is re-populated correctly
     test_encoded.iter_mut().for_each(|i| *i = 0x80);
-    encode(&source[..], &mut test_encoded[..]);
+    encode(source, &mut test_encoded[..]);
 
     // Mangle data to ensure data is re-populated correctly
     test_decoded.iter_mut().for_each(|i| *i = 0x80);
-    decode(&encoded[..], &mut test_decoded[..]).unwrap();
-
+    decode(encoded, &mut test_decoded[..]).unwrap();
     assert_eq!(encoded, test_encoded);
     assert_eq!(source, test_decoded);
 }
 
-fn test_roundtrip(source: Vec<u8>) {
-    let encoded = encode_vec(&source);
-    let decoded = decode_vec(&encoded).expect("decode_vec");
-    assert_eq!(source, decoded);
+fn test_decode_in_place(source: &[u8], encoded: &[u8]) {
+    let mut test_encoded = encoded.to_vec();
+    let report = decode_in_place_report(&mut test_encoded).unwrap();
+    assert_eq!(&test_encoded[0..report.dst_used], source);
+    assert_eq!(report.src_used, encoded.len());
+
+    test_encoded = encoded.to_vec();
+    let dst_used = decode_in_place(&mut test_encoded).unwrap();
+    assert_eq!(&test_encoded[0..dst_used], source);
 }
 
-#[test]
-fn decode_malforemd() {
-    let malformed_buf: [u8; 32] = [
-        68, 69, 65, 68, 66, 69, 69, 70, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0,
-    ];
-    let mut dest_buf: [u8; 32] = [0; 32];
-    if let Err(DecodeError::InvalidFrame { decoded_bytes }) = decode(&malformed_buf, &mut dest_buf)
-    {
-        assert_eq!(decoded_bytes, Some(7));
-    } else {
-        panic!("decoding worked when it should not have");
-    }
+fn test_roundtrip(source: &[u8]) {
+    let encoded = encode_vec(source);
+    let decoded = decode_vec(&encoded).expect("decode_vec");
+    assert_eq!(source, decoded);
 }
 
 #[test]
@@ -99,27 +94,27 @@ fn test_encode_0() {
 
 #[test]
 fn test_encode_1() {
-    test_pair(vec![10, 11, 0, 12], vec![3, 10, 11, 2, 12])
+    test_pair(&[10, 11, 0, 12], &[3, 10, 11, 2, 12])
 }
 
 #[test]
 fn test_encode_2() {
-    test_pair(vec![0, 0, 1, 0], vec![1, 1, 2, 1, 1])
+    test_pair(&[0, 0, 1, 0], &[1, 1, 2, 1, 1])
 }
 
 #[test]
 fn test_encode_3() {
-    test_pair(vec![255, 0], vec![2, 255, 1])
+    test_pair(&[255, 0], &[2, 255, 1])
 }
 
 #[test]
 fn test_encode_4() {
-    test_pair(vec![1], vec![2, 1])
+    test_pair(&[1], &[2, 1])
 }
 
 #[test]
 fn test_roundtrip_1() {
-    test_roundtrip(vec![1, 2, 3]);
+    test_roundtrip(&[1, 2, 3]);
 }
 
 #[test]
@@ -129,7 +124,7 @@ fn test_roundtrip_2() {
         for j in 0..252 + i {
             v.push(j as u8);
         }
-        test_roundtrip(v);
+        test_roundtrip(&v);
     }
 }
 
@@ -180,7 +175,7 @@ fn wikipedia_ex_6() {
     encoded.push(0xFF);
     (1..=0xFE).for_each(|i| encoded.push(i));
 
-    test_pair(unencoded, encoded);
+    test_pair(&unencoded, &encoded);
 }
 
 #[test]
@@ -195,7 +190,7 @@ fn wikipedia_ex_7() {
     encoded.push(0xFF);
     (1..=0xFE).for_each(|i| encoded.push(i));
 
-    test_pair(unencoded, encoded);
+    test_pair(&unencoded, &encoded);
 }
 
 #[test]
@@ -211,7 +206,7 @@ fn wikipedia_ex_8() {
     encoded.push(0x02);
     encoded.push(0xFF);
 
-    test_pair(unencoded, encoded);
+    test_pair(&unencoded, &encoded);
 }
 
 #[test]
@@ -228,7 +223,7 @@ fn wikipedia_ex_9() {
     encoded.push(0x01);
     encoded.push(0x01);
 
-    test_pair(unencoded, encoded);
+    test_pair(&unencoded, &encoded);
 }
 
 #[test]
@@ -246,7 +241,7 @@ fn wikipedia_ex_10() {
     encoded.push(0x02);
     encoded.push(0x01);
 
-    test_pair(unencoded, encoded);
+    test_pair(&unencoded, &encoded);
 }
 
 #[test]
@@ -254,16 +249,16 @@ fn issue_15() {
     // Reported: https://github.com/awelkie/cobs.rs/issues/15
 
     let my_string_buf = b"\x00\x11\x00\x22";
-    let max_len = cobs::max_encoding_length(my_string_buf.len());
+    let max_len = max_encoding_length(my_string_buf.len());
     assert!(max_len < 128);
     let mut buf = [0u8; 128];
 
-    let len = cobs::encode_with_sentinel(my_string_buf, &mut buf, b'\x00');
+    let len = encode_with_sentinel(my_string_buf, &mut buf, b'\x00');
 
     let cobs_buf = &buf[0..len];
 
     let mut decoded_dest_buf = [0u8; 128];
-    let new_len = cobs::decode_with_sentinel(cobs_buf, &mut decoded_dest_buf, b'\x00').unwrap();
+    let new_len = decode_with_sentinel(cobs_buf, &mut decoded_dest_buf, b'\x00').unwrap();
     let decoded_buf = &decoded_dest_buf[0..new_len];
 
     println!("{:?}  {:?}  {:?}", my_string_buf, cobs_buf, decoded_buf);
@@ -275,8 +270,6 @@ fn issue_19_test_254_block_all_ones() {
     let src: [u8; 254] = [1; 254];
     let mut dest: [u8; 256] = [0; 256];
     let encode_len = encode(&src, &mut dest);
-    //println!("Encoded buf [0..100]: {:x?}", &dest[0..100]);
-    //println!("Encoded buf [100..end]: {:x?}", &dest[100..]);
     assert_eq!(encode_len, 255);
     let mut decoded: [u8; 254] = [1; 254];
     let decoded_len = decode(&dest, &mut decoded).expect("decoding failed");

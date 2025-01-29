@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - Added `max_encoding_overhead` const function.
   [#20](https://github.com/jamesmunns/cobs.rs/pull/20)
+- Unittests for `decode_in_place` and `decode_in_place_report`.
+  [#36](https://github.com/jamesmunns/cobs.rs/pull/36)
 
 ## Changed
 
@@ -22,6 +24,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   the decoding module and a `DestBufTooSmallError` for the encoding module.
   [#30](https://github.com/jamesmunns/cobs.rs/pull/30)
 - `max_encoding_length` is now a const function. [#20](https://github.com/jamesmunns/cobs.rs/pull/20)
+- `decode_in_place` and `decode_in_place_report` now check the destination index and return
+  an appropriate `DecodeError` instead of panicking if an out-of-bounds access happens.
+  [#36](https://github.com/jamesmunns/cobs.rs/pull/36)
 
 ## Fixed
 

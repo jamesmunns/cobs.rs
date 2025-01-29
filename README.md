@@ -6,6 +6,19 @@ COBS is an algorithm for transforming a message into an encoding where a specifi
 
 See www.wikipedia.org/wiki/Consistent_Overhead_Byte_Stuffing for details.
 
+## Features
+
+`cobs` supports various runtime environments and is also suitable for `no_std` environments.
+
+### Default features
+
+ - [`std`](https://doc.rust-lang.org/std/): Enables functionality relying on the standard library
+   and also activates the `alloc` feature. Currently only adds `std::error::Error` support for the
+   library error types.
+ - [`alloc`](https://doc.rust-lang.org/alloc/): Enables features which operate on containers
+   like [`alloc::vec::Vec`](https://doc.rust-lang.org/beta/alloc/vec/struct.Vec.html).
+   Enabled by the `std` feature.
+
 ## License
 
 Licensed under either of

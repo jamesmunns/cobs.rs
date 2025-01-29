@@ -1,6 +1,3 @@
-#[cfg(feature = "alloc")]
-use alloc::{vec, vec::Vec};
-
 /// The [`CobsDecoder`] type is used to decode a stream of bytes to a
 /// given mutable output slice. This is often useful when heap data
 /// structures are not available, or when not all message bytes are
@@ -343,8 +340,8 @@ pub fn decode_in_place_with_sentinel(buff: &mut [u8], sentinel: u8) -> Result<us
 
 #[cfg(feature = "alloc")]
 /// Decodes the `source` buffer into a vector.
-pub fn decode_vec(source: &[u8]) -> Result<Vec<u8>, DecodeError> {
-    let mut decoded = vec![0; source.len()];
+pub fn decode_vec(source: &[u8]) -> Result<alloc::vec::Vec<u8>, DecodeError> {
+    let mut decoded = alloc::vec![0; source.len()];
     let n = decode(source, &mut decoded[..])?;
     decoded.truncate(n);
     Ok(decoded)
@@ -352,8 +349,11 @@ pub fn decode_vec(source: &[u8]) -> Result<Vec<u8>, DecodeError> {
 
 #[cfg(feature = "alloc")]
 /// Decodes the `source` buffer into a vector with an arbitrary sentinel value.
-pub fn decode_vec_with_sentinel(source: &[u8], sentinel: u8) -> Result<Vec<u8>, DecodeError> {
-    let mut decoded = vec![0; source.len()];
+pub fn decode_vec_with_sentinel(
+    source: &[u8],
+    sentinel: u8,
+) -> Result<alloc::vec::Vec<u8>, DecodeError> {
+    let mut decoded = alloc::vec![0; source.len()];
     let n = decode_with_sentinel(source, &mut decoded[..], sentinel)?;
     decoded.truncate(n);
     Ok(decoded)

@@ -1,9 +1,3 @@
-#[cfg(feature = "alloc")]
-use {
-    crate::max_encoding_length,
-    alloc::{vec, vec::Vec},
-};
-
 /// The [`CobsEncoder`] type is used to encode a stream of bytes to a
 /// given mutable output slice. This is often useful when heap data
 /// structures are not available, or when not all message bytes are
@@ -243,8 +237,8 @@ pub fn encode_with_sentinel(source: &[u8], dest: &mut [u8], sentinel: u8) -> usi
 
 #[cfg(feature = "alloc")]
 /// Encodes the `source` buffer into a vector, using the [encode] function.
-pub fn encode_vec(source: &[u8]) -> Vec<u8> {
-    let mut encoded = vec![0; max_encoding_length(source.len())];
+pub fn encode_vec(source: &[u8]) -> alloc::vec::Vec<u8> {
+    let mut encoded = alloc::vec![0; crate::max_encoding_length(source.len())];
     let encoded_len = encode(source, &mut encoded[..]);
     encoded.truncate(encoded_len);
     encoded
@@ -253,8 +247,8 @@ pub fn encode_vec(source: &[u8]) -> Vec<u8> {
 #[cfg(feature = "alloc")]
 /// Encodes the `source` buffer into a vector with an arbitrary sentinel value, using the
 /// [encode_with_sentinel] function.
-pub fn encode_vec_with_sentinel(source: &[u8], sentinel: u8) -> Vec<u8> {
-    let mut encoded = vec![0; max_encoding_length(source.len())];
+pub fn encode_vec_with_sentinel(source: &[u8], sentinel: u8) -> alloc::vec::Vec<u8> {
+    let mut encoded = alloc::vec![0; crate::max_encoding_length(source.len())];
     let encoded_len = encode_with_sentinel(source, &mut encoded[..], sentinel);
     encoded.truncate(encoded_len);
     encoded
@@ -262,14 +256,16 @@ pub fn encode_vec_with_sentinel(source: &[u8], sentinel: u8) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "alloc")]
     use super::*;
 
     #[test]
+    #[cfg(feature = "alloc")]
     fn encode_target_buf_too_small() {
         let source = &[10, 11, 0, 12];
         let expected = &[3, 10, 11, 2, 12];
         for len in 0..expected.len() {
-            let mut dest = vec![0; len];
+            let mut dest = alloc::vec![0; len];
             matches!(
                 try_encode(source, &mut dest).unwrap_err(),
                 DestBufTooSmallError
@@ -278,10 +274,11 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "alloc")]
     #[should_panic]
     fn encode_target_buf_too_small_panicking() {
         let source = &[10, 11, 0, 12];
         let expected = &[3, 10, 11, 2, 12];
-        encode(source, &mut vec![0; expected.len() - 1]);
+        encode(source, &mut alloc::vec![0; expected.len() - 1]);
     }
 }

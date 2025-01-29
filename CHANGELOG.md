@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Changed
 
+- Bumped rust edition to 2021
 - Improved error handling by replacing unit errors with a new `DecodeError` enumeration for
   the decoding module and a `DestBufTooSmallError` for the encoding module.
   [#30](https://github.com/jamesmunns/cobs.rs/pull/30)

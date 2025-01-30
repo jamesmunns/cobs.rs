@@ -11,6 +11,7 @@ pub struct CobsEncoder<'a> {
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[error("out of bounds error during encoding")]
 pub struct DestBufTooSmallError;

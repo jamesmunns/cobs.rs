@@ -55,8 +55,13 @@ pub enum DecodeResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum DecodeError {
+    #[error("empty input frame")]
+    EmptyFrame,
     #[error("frame with invalid format, written {decoded_bytes:?} to decoded buffer")]
-    InvalidFrame { decoded_bytes: Option<usize> },
+    InvalidFrame {
+        /// Number of bytes written to the decoded buffer.
+        decoded_bytes: usize,
+    },
     #[error("target buffer too small")]
     TargetBufTooSmall,
 }
@@ -105,12 +110,7 @@ impl DecoderState {
 
             // We were not expecting the sequence to terminate, but here we are.
             // Report an error due to early terminated message
-            (Grab(_), 0) => (
-                Err(DecodeError::InvalidFrame {
-                    decoded_bytes: None,
-                }),
-                Idle,
-            ),
+            (Grab(_), 0) => (Err(DecodeError::InvalidFrame { decoded_bytes: 0 }), Idle),
 
             // We have not yet reached the end of a data run, decrement the run
             // counter, and place the byte into the decoded output
@@ -131,12 +131,7 @@ impl DecoderState {
 
             // We were not expecting the sequence to terminate, but here we are.
             // Report an error due to early terminated message
-            (GrabChain(_), 0) => (
-                Err(DecodeError::InvalidFrame {
-                    decoded_bytes: None,
-                }),
-                Idle,
-            ),
+            (GrabChain(_), 0) => (Err(DecodeError::InvalidFrame { decoded_bytes: 0 }), Idle),
 
             // We have not yet reached the end of a data run, decrement the run
             // counter, and place the byte into the decoded output
@@ -170,7 +165,7 @@ impl<'a> CobsDecoder<'a> {
     pub fn feed(&mut self, data: u8) -> Result<Option<usize>, DecodeError> {
         match self.state.feed(data) {
             Err(_) => Err(DecodeError::InvalidFrame {
-                decoded_bytes: Some(self.dest_idx),
+                decoded_bytes: self.dest_idx,
             }),
             Ok(DecodeResult::NoData) => Ok(None),
             Ok(DecodeResult::DataContinue(n)) => {
@@ -213,6 +208,10 @@ impl<'a> CobsDecoder<'a> {
 /// This will return `Err(())` if there was a decoding error. Otherwise,
 /// it will return `Ok(n)` where `n` is the length of the decoded message.
 pub fn decode(source: &[u8], dest: &mut [u8]) -> Result<usize, DecodeError> {
+    if source.is_empty() {
+        return Err(DecodeError::EmptyFrame);
+    }
+
     let mut dec = CobsDecoder::new(dest);
 
     // Did we decode a message, using some or all of the buffer?
@@ -232,7 +231,7 @@ pub fn decode(source: &[u8], dest: &mut [u8]) -> Result<usize, DecodeError> {
 
     // Nope, no early message, no missing terminator, just failed to decode
     Err(DecodeError::InvalidFrame {
-        decoded_bytes: Some(dec.dest_idx),
+        decoded_bytes: dec.dest_idx,
     })
 }
 
@@ -253,39 +252,41 @@ pub struct DecodeReport {
 /// This is the same function as [decode_in_place], but provides a report
 /// of both the number of source bytes consumed as well as the size of the
 /// destination used.
-pub fn decode_in_place_report(buff: &mut [u8]) -> Result<DecodeReport, DecodeError> {
+pub fn decode_in_place_report(buf: &mut [u8]) -> Result<DecodeReport, DecodeError> {
     let mut source_index = 0;
     let mut dest_index = 0;
 
+    if buf.is_empty() {
+        return Err(DecodeError::EmptyFrame);
+    }
+
     // Stop at the first terminator, if any
-    let src_end = if let Some(end) = buff.iter().position(|b| *b == 0) {
+    let src_end = if let Some(end) = buf.iter().position(|b| *b == 0) {
         end
     } else {
-        buff.len()
+        buf.len()
     };
 
     while source_index < src_end {
-        let code = buff[source_index];
+        let code = buf[source_index];
 
         if source_index + code as usize > src_end && code != 1 {
             return Err(DecodeError::InvalidFrame {
-                decoded_bytes: Some(dest_index),
+                decoded_bytes: dest_index,
             });
         }
 
         source_index += 1;
 
         for _ in 1..code {
-            *buff
-                .get_mut(dest_index)
-                .ok_or(DecodeError::TargetBufTooSmall)? = buff[source_index];
+            *buf.get_mut(dest_index)
+                .ok_or(DecodeError::TargetBufTooSmall)? = buf[source_index];
             source_index += 1;
             dest_index += 1;
         }
 
         if 0xFF != code && source_index < src_end {
-            *buff
-                .get_mut(dest_index)
+            *buf.get_mut(dest_index)
                 .ok_or(DecodeError::TargetBufTooSmall)? = 0;
             dest_index += 1;
         }
@@ -374,9 +375,22 @@ mod tests {
         if let Err(DecodeError::InvalidFrame { decoded_bytes }) =
             decode(&malformed_buf, &mut dest_buf)
         {
-            assert_eq!(decoded_bytes, Some(7));
+            assert_eq!(decoded_bytes, 7);
         } else {
             panic!("decoding worked when it should not have");
         }
+    }
+
+    #[test]
+    fn decode_empty() {
+        matches!(decode_vec(&[]).unwrap_err(), DecodeError::EmptyFrame);
+        matches!(
+            decode_in_place(&mut []).unwrap_err(),
+            DecodeError::EmptyFrame
+        );
+        matches!(
+            decode(&[], &mut [0; 256]).unwrap_err(),
+            DecodeError::EmptyFrame
+        );
     }
 }

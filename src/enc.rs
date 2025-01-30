@@ -10,7 +10,8 @@ pub struct CobsEncoder<'a> {
     might_be_done: bool,
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[error("out of bounds error during encoding")]
 pub struct DestBufTooSmallError;
 

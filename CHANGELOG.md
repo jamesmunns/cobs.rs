@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   [#38](https://github.com/jamesmunns/cobs.rs/pull/38)
 - Documentation of the new `std` and `alloc` features in the README.
   [#38](https://github.com/jamesmunns/cobs.rs/pull/38)
+- Optional `defmt` support feature-gated by the optional `defmt` feature.
+  [#40](https://github.com/jamesmunns/cobs.rs/pull/40)
 
 ## Changed
 

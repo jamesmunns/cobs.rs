@@ -54,6 +54,7 @@ pub enum DecodeResult {
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DecodeError {
     #[error("empty input frame")]
@@ -238,6 +239,7 @@ pub fn decode(source: &[u8], dest: &mut [u8]) -> Result<usize, DecodeError> {
 
 /// A report of the source and destination bytes used during in-place decoding
 #[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DecodeReport {
     // The number of source bytes used, NOT INCLUDING the sentinel byte,

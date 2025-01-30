@@ -19,6 +19,11 @@ See www.wikipedia.org/wiki/Consistent_Overhead_Byte_Stuffing for details.
    like [`alloc::vec::Vec`](https://doc.rust-lang.org/beta/alloc/vec/struct.Vec.html).
    Enabled by the `std` feature.
 
+### Optional features
+
+- [`defmt`](https://docs.rs/defmt/latest/defmt/): Adds `defmt::Format` derives on some data
+  structures and error types.
+
 ## License
 
 Licensed under either of

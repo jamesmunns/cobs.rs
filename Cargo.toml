@@ -21,6 +21,7 @@ use_std = ["std"]
 
 [dependencies]
 thiserror = { version = "2", default-features = false }
+defmt = { version = "0.3", optional = true }
 
 [dev-dependencies]
 quickcheck = "1"

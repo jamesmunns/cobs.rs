@@ -9,7 +9,7 @@ description = """
     (the "sentinel" value) is not used. This value can then be used to mark frame boundaries
     in a serial communication channel. """
 repository = "https://github.com/jamesmunns/cobs.rs"
-keywords = ["consistent", "overhead", "byte", "stuffing"]
+keywords = ["consistent", "overhead", "byte", "stuffing", "encoding"]
 edition = "2021"
 
 [features]
@@ -26,3 +26,7 @@ serde = { version = "1", features = ["derive"], optional = true }
 
 [dev-dependencies]
 quickcheck = "1"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--generate-link-to-definition"]

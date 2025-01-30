@@ -192,7 +192,7 @@ impl<'a> CobsEncoder<'a> {
 ///
 /// This function will panic if the `dest` buffer is not large enough for the
 /// encoded message. You can calculate the size the `dest` buffer needs to be with
-/// the [max_encoding_length] function.
+/// the [crate::max_encoding_length] function.
 pub fn encode(source: &[u8], dest: &mut [u8]) -> usize {
     let mut enc = CobsEncoder::new(dest);
     enc.push(source).unwrap();

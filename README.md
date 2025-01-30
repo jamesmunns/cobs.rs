@@ -4,7 +4,7 @@ This is an implementation of the Consistent Overhead Byte Stuffing (COBS) algori
 
 COBS is an algorithm for transforming a message into an encoding where a specific value (the "sentinel" value) is not used. This value can then be used to mark frame boundaries in a serial communication channel.
 
-See www.wikipedia.org/wiki/Consistent_Overhead_Byte_Stuffing for details.
+See [the wikipedia article](https://www.wikipedia.org/wiki/Consistent_Overhead_Byte_Stuffing) for details.
 
 ## Features
 
@@ -23,6 +23,7 @@ See www.wikipedia.org/wiki/Consistent_Overhead_Byte_Stuffing for details.
 
 - [`defmt`](https://docs.rs/defmt/latest/defmt/): Adds `defmt::Format` derives on some data
   structures and error types.
+- [`serde`](https://serde.rs/): Adds `serde` derives on some data structures and error types.
 
 ## License
 

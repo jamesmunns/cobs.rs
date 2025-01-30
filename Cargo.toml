@@ -23,4 +23,4 @@ use_std = ["std"]
 thiserror = { version = "2", default-features = false }
 
 [dev-dependencies]
-quickcheck = "^0.5.0"
+quickcheck = "1"

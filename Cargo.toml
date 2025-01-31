@@ -1,7 +1,7 @@
 [package]
 name = "cobs"
 version = "0.3.0"
-authors = ["Allen Welkie <>", "James Munns <james.munns@ferrous-systems.com>"]
+authors = ["Allen Welkie <>", "James Munns <james@onevariable.com>"]
 license = "MIT OR Apache-2.0"
 description = """
     This is an implementation of the Consistent Overhead Byte Stuffing (COBS) algorithm.

@@ -1,3 +1,7 @@
+[![Crates.io](https://img.shields.io/crates/v/cobs)](https://crates.io/crates/cobs)
+[![docs.rs](https://img.shields.io/docsrs/cobs)](https://docs.rs/cobs)
+[![ci](https://github.com/jamesmunns/cobs.rs/actions/workflows/ci.yml/badge.svg)](https://github.com/jamesmunns/cobs.rs/actions/workflows/ci.yml)
+
 # `cobs`
 
 This is an implementation of the Consistent Overhead Byte Stuffing (COBS) algorithm in Rust.

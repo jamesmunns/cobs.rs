@@ -1,7 +1,7 @@
-/// The [`CobsEncoder`] type is used to encode a stream of bytes to a
-/// given mutable output slice. This is often useful when heap data
-/// structures are not available, or when not all message bytes are
-/// received at a single point in time.
+/// The [`CobsEncoder`] type is used to encode a stream of bytes to a given mutable output slice.
+///
+/// This is often useful when heap data structures are not available, or when not all message bytes
+/// are received at a single point in time.
 #[derive(Debug)]
 pub struct CobsEncoder<'a> {
     dest: &'a mut [u8],
@@ -16,10 +16,9 @@ pub struct CobsEncoder<'a> {
 #[error("out of bounds error during encoding")]
 pub struct DestBufTooSmallError;
 
-/// The [`EncoderState`] is used to track the current state of a
-/// streaming encoder. This struct does not contain the output buffer
-/// (or a reference to one), and can be used when streaming the encoded
-/// output to a custom data type
+/// The [`EncoderState`] is used to track the current state of a streaming encoder. This struct
+/// does not contain the output buffer (or a reference to one), and can be used when streaming the
+/// encoded output to a custom data type
 ///
 /// **IMPORTANT NOTE**: When implementing a custom streaming encoder,
 /// the [`EncoderState`] state machine assumes that the output buffer
@@ -102,7 +101,7 @@ impl EncoderState {
 }
 
 impl<'a> CobsEncoder<'a> {
-    /// Create a new streaming Cobs Encoder
+    /// Create a new streaming Cobs Encoder.
     pub fn new(out_buf: &'a mut [u8]) -> CobsEncoder<'a> {
         CobsEncoder {
             dest: out_buf,
@@ -159,15 +158,15 @@ impl<'a> CobsEncoder<'a> {
         Ok(())
     }
 
-    /// Complete encoding of the output message. Does NOT terminate
-    /// the message with the sentinel value
+    /// Complete encoding of the output message. Does NOT terminate the message with the sentinel
+    /// value.
     pub fn finalize(self) -> usize {
-        if self.dest_idx == 1 {
-            return 0;
-        }
-
         // Get the last index that needs to be fixed
-        let (idx, mval) = self.state.finalize();
+        let (idx, mval) = if self.dest_idx == 0 {
+            (0, 0x01)
+        } else {
+            self.state.finalize()
+        };
 
         // If the current code index is outside of the destination slice,
         // we do not need to write it out

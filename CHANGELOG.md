@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 # [unreleased]
 
+## Fixed
+
+- The encoder functions will now encode empty input into a single 0x01 byte.
+  [#49](https://github.com/jamesmunns/cobs.rs/pull/49)
+
 # [v0.3.0] 2025-01-31
 
 ## Added

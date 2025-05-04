@@ -69,6 +69,7 @@ fn stream_roundtrip() {
 
 #[test]
 fn test_max_encoding_length() {
+    assert_eq!(max_encoding_length(0), 1);
     assert_eq!(max_encoding_length(253), 254);
     assert_eq!(max_encoding_length(254), 255);
     assert_eq!(max_encoding_length(255), 257);
@@ -81,13 +82,18 @@ fn test_encode_0() {
     // An empty input is encoded as no characters.
     let mut output = [0xFFu8; 16];
     let used = encode(&[], &mut output);
-    assert_eq!(used, 0);
-    assert_eq!(output.as_slice(), &[0xFFu8; 16]);
+    assert_eq!(used, 1);
+    assert_eq!(output[0], 0x01);
 }
 
 #[test]
 fn test_encode_1() {
     test_pair(&[10, 11, 0, 12], &[3, 10, 11, 2, 12])
+}
+
+#[test]
+fn test_encode_empty() {
+    test_pair(&[], &[1])
 }
 
 #[test]

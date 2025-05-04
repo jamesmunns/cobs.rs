@@ -191,7 +191,7 @@ impl<'a> CobsDecoder<'a> {
     ///
     /// * Ok(None) - State machine okay, more data needed
     /// * Ok(Some([DecodeReport]))) - A message was successfully decoded. The parse size of the
-    ///   report specifies the consumes bytes of the passed data chunk.
+    ///   report specifies the consumed bytes of the passed data chunk.
     /// * Err([DecodeError]) - Message decoding failed
     ///
     /// If the decoder is used for continuous decoding, the user must take care of feeding any

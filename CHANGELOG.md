@@ -13,6 +13,20 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - The encoder functions will now encode empty input into a single 0x01 byte.
   [#49](https://github.com/jamesmunns/cobs.rs/pull/49)
 
+## Changed
+
+- `decode` now returns the `DecodeReport` structure which contains both the frame size
+  and the parsed size.
+  [#50](https://github.com/jamesmunns/cobs.rs/pull/50)
+- `CobsDecoder::push` also returns a `DecodeReport` now.
+  [#50](https://github.com/jamesmunns/cobs.rs/pull/50)
+- The `DecodeReport` structure now has `frame_size` and `parsed_size` getter methods instead
+  of public `src_used` / `dst_used` fields.
+  [#50](https://github.com/jamesmunns/cobs.rs/pull/50)
+- The `CobsDecoder` is now able to continuously parse data without having to re-create
+  it after each parsed packet.
+  [#50](https://github.com/jamesmunns/cobs.rs/pull/50)
+
 # [v0.3.0] 2025-01-31
 
 ## Added

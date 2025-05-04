@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 # [unreleased]
 
+## Added
+
+- Added getter function `data` for `CobsDecoder`.
+
 # [v0.3.0] 2025-01-31
 
 ## Added

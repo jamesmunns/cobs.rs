@@ -43,6 +43,9 @@ pub use crate::enc::*;
 /// The overhead is a maximum of [n/254] bytes (one in 254 bytes) rounded up.
 #[inline]
 pub const fn max_encoding_overhead(source_len: usize) -> usize {
+    if source_len == 0 {
+        return 1;
+    }
     source_len.div_ceil(254)
 }
 
@@ -68,7 +71,7 @@ mod tests {
 
     #[test]
     fn test_overhead_empty() {
-        assert_eq!(max_encoding_overhead(0), 0);
+        assert_eq!(max_encoding_overhead(0), 1);
     }
 
     #[test]

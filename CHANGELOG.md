@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Changed
 
+- Bumped `defmt` dependency to v1
 - `decode` now returns the `DecodeReport` structure which contains both the frame size
   and the parsed size.
   [#50](https://github.com/jamesmunns/cobs.rs/pull/50)
@@ -64,3 +65,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - Fixed wrong encoded length when source length was divisible by 254.
   [#19](https://github.com/jamesmunns/cobs.rs/issues/19)
+
+[unreleased]: https://github.com/jamesmunns/cobs.rs/compare/v0.4.0...HEAD
+[v0.4.0]: https://github.com/jamesmunns/cobs.rs/compare/v0.3.0...v0.4.0

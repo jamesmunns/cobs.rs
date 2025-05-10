@@ -25,7 +25,7 @@ use_std = ["std"]
 
 [dependencies]
 thiserror = { version = "2", default-features = false }
-defmt = { version = "0.3", optional = true }
+defmt = { version = "1", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 
 [dev-dependencies]

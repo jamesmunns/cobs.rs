@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 # [unreleased]
 
+# [v0.4.0] 2025-05-10
+
 ## Fixed
 
 - The encoder functions will now encode empty input into a single 0x01 byte.
@@ -16,6 +18,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ## Changed
 
 - Bumped `defmt` dependency to v1
+  [#51](https://github.com/jamesmunns/cobs.rs/pull/51)
 - `decode` now returns the `DecodeReport` structure which contains both the frame size
   and the parsed size.
   [#50](https://github.com/jamesmunns/cobs.rs/pull/50)

@@ -37,11 +37,15 @@ fn add(to: &mut [u8], idx: usize, data: u8) -> Result<(), DecodeError> {
 
 /// [`DecodeResult`] represents the possible non-error outcomes of
 /// pushing an encoded data byte into the [`DecoderState`] state machine
+#[derive(Debug)]
 pub enum DecodeResult {
     /// The given input byte did not prompt an output byte, either because the
     /// state machine is still idle, or we have just processed a header byte.
     /// More data is needed to complete the message.
     NoData,
+
+    /// Received start of a new frame.
+    DataStart,
 
     /// We have received a complete and well-encoded COBS message. The
     /// contents of the associated output buffer may now be used
@@ -88,11 +92,11 @@ impl DecoderState {
             // Currently Idle, received a byte indicating the
             // next 255 bytes have no zeroes, so we will have 254 unmodified
             // data bytes, then an overhead byte
-            (Idle, 0xFF) => (Ok(NoData), GrabChain(0xFE)),
+            (Idle, 0xFF) => (Ok(DataStart), GrabChain(0xFE)),
 
             // Currently Idle, received a byte indicating there will be a
             // zero that must be modified in the next 1..=254 bytes
-            (Idle, n) => (Ok(NoData), Grab(n - 1)),
+            (Idle, n) => (Ok(DataStart), Grab(n - 1)),
 
             // We have reached the end of a data run indicated by an overhead
             // byte, AND we have recieved the message terminator. This was a
@@ -170,6 +174,10 @@ impl<'a> CobsDecoder<'a> {
                 decoded_bytes: self.dest_idx,
             }),
             Ok(DecodeResult::NoData) => Ok(None),
+            Ok(DecodeResult::DataStart) => {
+                self.dest_idx = 0;
+                Ok(None)
+            }
             Ok(DecodeResult::DataContinue(n)) => {
                 add(self.dest, self.dest_idx, n)?;
                 self.dest_idx += 1;
@@ -182,34 +190,73 @@ impl<'a> CobsDecoder<'a> {
     /// Push a slice of bytes into the streaming CobsDecoder. Return values mean:
     ///
     /// * Ok(None) - State machine okay, more data needed
-    /// * Ok(Some((N, M))) - A message of N bytes was successfully decoded,
-    ///   using M bytes from `data` (and earlier data)
+    /// * Ok(Some([DecodeReport]))) - A message was successfully decoded. The parse size of the
+    ///   report specifies the consumed bytes of the passed data chunk.
     /// * Err([DecodeError]) - Message decoding failed
+    ///
+    /// If the decoder is used for continuous decoding, the user must take care of feeding any
+    /// undecoded bytes of the input data back into the decoder. This can be done by
+    /// [Self::push]ing the undecoded bytes (the last X bytes of the input with X being the length
+    /// of the input minus the parsed length) into the decoder after a frame was decoded.
     ///
     /// NOTE: Sentinel value must be included in the input to this function for the
     /// decoding to complete
-    pub fn push(&mut self, data: &[u8]) -> Result<Option<(usize, usize)>, DecodeError> {
+    pub fn push(&mut self, data: &[u8]) -> Result<Option<DecodeReport>, DecodeError> {
         for (consumed_idx, d) in data.iter().enumerate() {
             let opt_decoded_bytes = self.feed(*d)?;
             if let Some(decoded_bytes_ct) = opt_decoded_bytes {
                 // convert from index to number of bytes consumed
-                return Ok(Some((decoded_bytes_ct, consumed_idx + 1)));
+                return Ok(Some(DecodeReport {
+                    frame_size: decoded_bytes_ct,
+                    parsed_size: consumed_idx + 1,
+                }));
             }
         }
 
         Ok(None)
+    }
+
+    /// Destination buffer which contains decoded frames.
+    #[inline]
+    pub fn dest(&self) -> &[u8] {
+        self.dest
+    }
+
+    /// Destination buffer which contains decoded frames.
+    ///
+    /// This allows using the buffer for other purposes than decoding after a frame was found.
+    /// Changing the buffer in any other state might corrupt a frame which might currently be
+    /// decoded.
+    #[inline]
+    pub fn dest_mut(&mut self) -> &mut [u8] {
+        self.dest
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct DecodingResult {
+    frame_size: usize,
+    parsed_size: usize,
+}
+
+impl DecodingResult {
+    #[inline]
+    pub fn frame_size(&self) -> usize {
+        self.frame_size
+    }
+
+    #[inline]
+    pub fn parsed_size(&self) -> usize {
+        self.parsed_size
     }
 }
 
 /// Decodes the `source` buffer into the `dest` buffer.
 ///
 /// This function uses the typical sentinel value of 0.
-///
-/// # Failures
-///
-/// This will return `Err(())` if there was a decoding error. Otherwise,
-/// it will return `Ok(n)` where `n` is the length of the decoded message.
-pub fn decode(source: &[u8], dest: &mut [u8]) -> Result<usize, DecodeError> {
+pub fn decode(source: &[u8], dest: &mut [u8]) -> Result<DecodeReport, DecodeError> {
     if source.is_empty() {
         return Err(DecodeError::EmptyFrame);
     }
@@ -217,8 +264,8 @@ pub fn decode(source: &[u8], dest: &mut [u8]) -> Result<usize, DecodeError> {
     let mut dec = CobsDecoder::new(dest);
 
     // Did we decode a message, using some or all of the buffer?
-    if let Some((d_used, _s_used)) = dec.push(source)? {
-        return Ok(d_used);
+    if let Some(result) = dec.push(source)? {
+        return Ok(result);
     }
 
     // If we consumed the entire buffer, but did NOT get a message,
@@ -226,8 +273,11 @@ pub fn decode(source: &[u8], dest: &mut [u8]) -> Result<usize, DecodeError> {
     // complete the decoding.
     if source.last() != Some(&0) {
         // Explicitly push sentinel of zero
-        if let Some((d_used, _s_used)) = dec.push(&[0])? {
-            return Ok(d_used);
+        if let Some(result) = dec.push(&[0])? {
+            return Ok(DecodeReport {
+                frame_size: result.frame_size(),
+                parsed_size: source.len(),
+            });
         }
     }
 
@@ -238,17 +288,26 @@ pub fn decode(source: &[u8], dest: &mut [u8]) -> Result<usize, DecodeError> {
 }
 
 /// A report of the source and destination bytes used during in-place decoding
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DecodeReport {
-    // The number of source bytes used, NOT INCLUDING the sentinel byte,
-    // if there was one.
-    pub src_used: usize,
+    parsed_size: usize,
+    frame_size: usize,
+}
 
-    // The number of bytes of the source buffer that now include the
-    // decoded result
-    pub dst_used: usize,
+impl DecodeReport {
+    /// The number of source bytes parsed.
+    #[inline]
+    pub fn parsed_size(&self) -> usize {
+        self.parsed_size
+    }
+
+    /// The decoded frame size.
+    #[inline]
+    pub fn frame_size(&self) -> usize {
+        self.frame_size
+    }
 }
 
 /// Decodes a message in-place.
@@ -297,8 +356,8 @@ pub fn decode_in_place_report(buf: &mut [u8]) -> Result<DecodeReport, DecodeErro
     }
 
     Ok(DecodeReport {
-        dst_used: dest_index,
-        src_used: source_index,
+        frame_size: dest_index,
+        parsed_size: source_index,
     })
 }
 
@@ -310,7 +369,7 @@ pub fn decode_in_place_report(buf: &mut [u8]) -> Result<DecodeReport, DecodeErro
 /// The returned `usize` is the number of bytes used for the DECODED value,
 /// NOT the number of source bytes consumed during decoding.
 pub fn decode_in_place(buff: &mut [u8]) -> Result<usize, DecodeError> {
-    decode_in_place_report(buff).map(|r| r.dst_used)
+    decode_in_place_report(buff).map(|res| res.frame_size())
 }
 
 /// Decodes the `source` buffer into the `dest` buffer using an arbitrary sentinel value.
@@ -347,8 +406,8 @@ pub fn decode_in_place_with_sentinel(buff: &mut [u8], sentinel: u8) -> Result<us
 /// Decodes the `source` buffer into a vector.
 pub fn decode_vec(source: &[u8]) -> Result<alloc::vec::Vec<u8>, DecodeError> {
     let mut decoded = alloc::vec![0; source.len()];
-    let n = decode(source, &mut decoded[..])?;
-    decoded.truncate(n);
+    let result = decode(source, &mut decoded[..])?;
+    decoded.truncate(result.frame_size());
     Ok(decoded)
 }
 

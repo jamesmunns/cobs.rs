@@ -12,23 +12,135 @@ fn test_encode_decode_free_functions(source: &[u8], encoded: &[u8]) {
     // Mangle data to ensure data is re-populated correctly
     test_encoded.iter_mut().for_each(|i| *i = 0x80);
     encode(source, &mut test_encoded[..]);
+    test_encoded.push(0x00);
 
     // Mangle data to ensure data is re-populated correctly
     test_decoded.iter_mut().for_each(|i| *i = 0x80);
-    decode(encoded, &mut test_decoded[..]).unwrap();
-    assert_eq!(encoded, test_encoded);
+    decode(&test_encoded, &mut test_decoded[..]).unwrap();
+    assert_eq!(encoded, &test_encoded[..test_encoded.len() - 1]);
     assert_eq!(source, test_decoded);
 }
 
 fn test_decode_in_place(source: &[u8], encoded: &[u8]) {
     let mut test_encoded = encoded.to_vec();
     let report = decode_in_place_report(&mut test_encoded).unwrap();
-    assert_eq!(&test_encoded[0..report.dst_used], source);
-    assert_eq!(report.src_used, encoded.len());
+    assert_eq!(&test_encoded[0..report.frame_size()], source);
+    assert_eq!(report.parsed_size(), encoded.len());
 
     test_encoded = encoded.to_vec();
-    let dst_used = decode_in_place(&mut test_encoded).unwrap();
-    assert_eq!(&test_encoded[0..dst_used], source);
+    let result = decode_in_place(&mut test_encoded).unwrap();
+    assert_eq!(&test_encoded[0..result], source);
+}
+
+#[test]
+fn stream_continously() {
+    let mut dest: [u8; 16] = [0; 16];
+    let data = b"hello world";
+    let mut encoded_data: [u8; 16] = [0; 16];
+    let mut encoded_len = encode(data, &mut encoded_data);
+    // Sentinel byte at end.
+    encoded_data[encoded_len] = 0x00;
+    encoded_len += 1;
+    // Stream continously using only `push`. The decoding buffer should not overflow.
+    let mut decoder = CobsDecoder::new(&mut dest);
+    continuous_decoding(&mut decoder, data, &encoded_data[0..encoded_len]);
+}
+
+#[test]
+fn stream_continously_2() {
+    let mut dest: [u8; 16] = [0; 16];
+    let data = b"hello world";
+    let mut encoded_data: [u8; 16] = [0; 16];
+    let mut encoded_len = encode(data, &mut encoded_data[1..]);
+    // Sentinel byte at start and end.
+    encoded_data[0] = 0x00;
+    encoded_data[encoded_len + 1] = 0x00;
+    encoded_len += 2;
+    // Stream continously using only `push`. The decoding buffer should not overflow.
+    let mut decoder = CobsDecoder::new(&mut dest);
+    continuous_decoding(&mut decoder, data, &encoded_data[0..encoded_len]);
+}
+
+#[test]
+fn stream_chunk_with_2_frames() {
+    let mut dest: [u8; 32] = [0; 32];
+    let data = b"hello world";
+    let data2 = b"second";
+    let mut encoded_data: [u8; 32] = [0; 32];
+    // Sentinel byte at start.
+    encoded_data[0] = 0x00;
+    let mut encoded_len = 1;
+    encoded_len += encode(data, &mut encoded_data[encoded_len..]);
+    // Sentinel byte at end.
+    encoded_data[encoded_len] = 0x00;
+    encoded_len += 1;
+    let first_frame_len = encoded_len;
+    encoded_data[encoded_len] = 0x00;
+    encoded_len += 1;
+    encoded_len += encode(data2, &mut encoded_data[encoded_len..]);
+    encoded_data[encoded_len] = 0x00;
+    encoded_len += 1;
+    let second_frame_len = encoded_len - first_frame_len;
+    let mut decoder = CobsDecoder::new(&mut dest);
+    let result = decoder.push(&encoded_data[0..encoded_len]).unwrap();
+    assert!(result.is_some());
+    let frame_report = result.unwrap();
+    assert_eq!(frame_report.frame_size(), data.len());
+    assert_eq!(frame_report.parsed_size(), first_frame_len);
+    // Now insert the rest of the data.
+    let result = decoder
+        .push(&encoded_data[frame_report.parsed_size()..])
+        .unwrap();
+    assert!(result.is_some());
+    let frame_report = result.unwrap();
+    assert_eq!(frame_report.frame_size(), data2.len());
+    assert_eq!(frame_report.parsed_size(), second_frame_len);
+}
+
+#[test]
+fn decoding_broken_packet() {
+    let mut dest: [u8; 32] = [0; 32];
+    let data = b"hello world";
+    let mut encoded_data: [u8; 32] = [0; 32];
+    encode(data, &mut encoded_data[1..]);
+    let mut encoded_len = encode(data, &mut encoded_data[6..]);
+    // Sentinel byte at start and end.
+    encoded_data[0] = 0x00;
+    // Another frame abruptly starts. This simulates a broken frame, and the streaming decoder
+    // should be able to recover from this.
+    encoded_data[5] = 0x00;
+    encoded_data[5 + encoded_len + 1] = 0x00;
+    encoded_len = 5 + encoded_len + 2;
+    let mut decoder = CobsDecoder::new(&mut dest);
+    for (idx, byte) in encoded_data.iter().take(encoded_len - 1).enumerate() {
+        if idx == 5 {
+            if let Err(DecodeError::InvalidFrame { decoded_bytes }) = decoder.push(&[*byte]) {
+                assert_eq!(decoded_bytes, 3);
+            }
+        } else {
+            decoder.push(&[*byte]).unwrap();
+        }
+    }
+    if let Ok(Some(msg_size)) = decoder.feed(encoded_data[encoded_len - 1]) {
+        assert_eq!(msg_size, data.len());
+        assert_eq!(data, &decoder.dest()[0..msg_size]);
+    } else {
+        panic!("decoding call did not yield expected frame");
+    }
+}
+
+fn continuous_decoding(decoder: &mut CobsDecoder, expected_data: &[u8], encoded_frame: &[u8]) {
+    for _ in 0..10 {
+        for byte in encoded_frame.iter().take(encoded_frame.len() - 1) {
+            decoder.feed(*byte).unwrap();
+        }
+        if let Ok(Some(sz_msg)) = decoder.feed(encoded_frame[encoded_frame.len() - 1]) {
+            assert_eq!(sz_msg, expected_data.len());
+            assert_eq!(expected_data, &decoder.dest()[0..sz_msg]);
+        } else {
+            panic!("decoding call did not yield expected frame");
+        }
+    }
 }
 
 #[test]
@@ -38,31 +150,31 @@ fn stream_roundtrip() {
 
         let mut dest = vec![0u8; max_encoding_length(source.len())];
 
-        let sz_en = {
-            let mut ce = CobsEncoder::new(&mut dest);
+        let encoded_size = {
+            let mut encoder = CobsEncoder::new(&mut dest);
 
-            for c in source.chunks(17) {
-                ce.push(c).unwrap();
+            for chunk in source.chunks(17) {
+                encoder.push(chunk).unwrap();
             }
-            ce.finalize()
+            encoder.finalize()
         };
 
         let mut decoded = source.clone();
         decoded.iter_mut().for_each(|i| *i = 0x80);
-        let sz_de = {
-            let mut cd = CobsDecoder::new(&mut decoded);
+        let decoded_size = {
+            let mut decoder = CobsDecoder::new(&mut decoded);
 
-            for c in dest[0..sz_en].chunks(11) {
-                cd.push(c).unwrap();
+            for chunk in dest[0..encoded_size].chunks(11) {
+                decoder.push(chunk).unwrap();
             }
 
-            match cd.feed(0) {
+            match decoder.feed(0) {
                 Ok(sz_msg) => sz_msg.unwrap(),
                 Err(written) => panic!("decoding failed, {} bytes written to output", written),
             }
         };
 
-        assert_eq!(sz_de, source.len());
+        assert_eq!(decoded_size, source.len());
         assert_eq!(source, decoded);
     }
 }
@@ -219,8 +331,9 @@ fn issue_19_test_254_block_all_ones() {
     let encode_len = encode(&src, &mut dest);
     assert_eq!(encode_len, 255);
     let mut decoded: [u8; 254] = [1; 254];
-    let decoded_len = decode(&dest, &mut decoded).expect("decoding failed");
-    assert_eq!(decoded_len, 254);
+    let result = decode(&dest, &mut decoded).expect("decoding failed");
+    assert_eq!(result.frame_size(), 254);
+    assert_eq!(result.parsed_size(), 256);
     assert_eq!(&src, &decoded);
 }
 
@@ -286,7 +399,9 @@ mod alloc_tests {
     }
 
     fn test_roundtrip(source: &[u8]) {
-        let encoded = encode_vec(source);
+        let mut encoded = encode_vec(source);
+        // Terminate the frame.
+        encoded.push(0x00);
         let decoded = decode_vec(&encoded).expect("decode_vec");
         assert_eq!(source, decoded);
     }

@@ -198,6 +198,31 @@ pub fn encode(source: &[u8], dest: &mut [u8]) -> usize {
     enc.finalize()
 }
 
+/// Encodes the `source` buffer into the `dest` buffer, including the default sentinel values 0
+/// around the encoded frame.
+///
+/// # Returns
+///
+/// The number of bytes written to in the `dest` buffer.
+///
+/// # Panics
+///
+/// This function will panic if the `dest` buffer is not large enough for the
+/// encoded message. You can calculate the size the `dest` buffer needs to be with
+/// the [crate::max_encoding_length] function.
+pub fn encode_including_sentinels(source: &[u8], dest: &mut [u8]) -> usize {
+    if dest.len() < 2 {
+        panic!("destination buffer too small");
+    }
+
+    dest[0] = 0;
+    let mut enc = CobsEncoder::new(&mut dest[1..]);
+    enc.push(source).unwrap();
+    let encoded_len = enc.finalize();
+    dest[encoded_len + 1] = 0;
+    encoded_len + 2
+}
+
 /// Attempts to encode the `source` buffer into the `dest` buffer.
 ///
 /// This function assumes the typical sentinel value of 0, but does not terminate the encoded
@@ -212,6 +237,29 @@ pub fn try_encode(source: &[u8], dest: &mut [u8]) -> Result<usize, DestBufTooSma
     let mut enc = CobsEncoder::new(dest);
     enc.push(source)?;
     Ok(enc.finalize())
+}
+
+/// Encodes the `source` buffer into the `dest` buffer, including the default sentinel values 0
+/// around the encoded frame.
+///
+/// # Returns
+///
+/// The number of bytes written to in the `dest` buffer.
+///
+/// If the destination buffer does not have enough room, an error will be returned.
+pub fn try_encode_including_sentinels(
+    source: &[u8],
+    dest: &mut [u8],
+) -> Result<usize, DestBufTooSmallError> {
+    if dest.len() < 2 {
+        return Err(DestBufTooSmallError);
+    }
+    dest[0] = 0;
+    let mut enc = CobsEncoder::new(&mut dest[1..]);
+    enc.push(source)?;
+    let encoded_len = enc.finalize();
+    dest[encoded_len + 1] = 0;
+    Ok(encoded_len + 2)
 }
 
 /// Encodes the `source` buffer into the `dest` buffer using an
@@ -246,6 +294,16 @@ pub fn encode_vec(source: &[u8]) -> alloc::vec::Vec<u8> {
 }
 
 #[cfg(feature = "alloc")]
+/// Encodes the `source` buffer into a vector, using the [encode] function, while also adding
+/// the sentinels around the encoded frame.
+pub fn encode_vec_including_sentinels(source: &[u8]) -> alloc::vec::Vec<u8> {
+    let mut encoded = alloc::vec![0; crate::max_encoding_length(source.len()) + 2];
+    let encoded_len = encode_including_sentinels(source, &mut encoded);
+    encoded.truncate(encoded_len + 2);
+    encoded
+}
+
+#[cfg(feature = "alloc")]
 /// Encodes the `source` buffer into a vector with an arbitrary sentinel value, using the
 /// [encode_with_sentinel] function.
 pub fn encode_vec_with_sentinel(source: &[u8], sentinel: u8) -> alloc::vec::Vec<u8> {
@@ -257,11 +315,12 @@ pub fn encode_vec_with_sentinel(source: &[u8], sentinel: u8) -> alloc::vec::Vec<
 
 #[cfg(test)]
 mod tests {
+    use crate::decode_vec;
+
     #[cfg(feature = "alloc")]
     use super::*;
 
     #[test]
-    #[cfg(feature = "alloc")]
     fn encode_target_buf_too_small() {
         let source = &[10, 11, 0, 12];
         let expected = &[3, 10, 11, 2, 12];
@@ -275,7 +334,32 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "alloc")]
+    fn try_encode_with_sentinels() {
+        let source = &[10, 11, 0, 12];
+        let expected = &[0, 3, 10, 11, 2, 12, 0];
+        let mut dest = alloc::vec![0; expected.len()];
+        let encoded_len = try_encode_including_sentinels(source, &mut dest).unwrap();
+        assert_eq!(encoded_len, expected.len());
+        assert_eq!(dest[0], 0);
+        assert_eq!(dest[expected.len() - 1], 0);
+        assert_eq!(decode_vec(&dest).unwrap(), source);
+    }
+
+    #[test]
+    fn test_encoding_including_sentinels() {
+        let data = [1, 2, 3];
+        let encoded = encode_vec_including_sentinels(&data);
+        assert_eq!(*encoded.first().unwrap(), 0);
+        assert_eq!(*encoded.last().unwrap(), 0);
+        let data_decoded = decode_vec(&encoded).unwrap();
+        assert_eq!(data_decoded, data);
+        let data_decoded = decode_vec(&encoded[1..]).unwrap();
+        assert_eq!(data_decoded, data);
+        let data_decoded = decode_vec(&encoded[1..encoded.len() - 1]).unwrap();
+        assert_eq!(data_decoded, data);
+    }
+
+    #[test]
     #[should_panic]
     fn encode_target_buf_too_small_panicking() {
         let source = &[10, 11, 0, 12];

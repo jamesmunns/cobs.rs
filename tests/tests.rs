@@ -398,6 +398,20 @@ mod alloc_tests {
         quickcheck(identity_default_sentinel as fn(Vec<u8>) -> TestResult);
     }
 
+    #[test]
+    fn test_encoding_including_sentinels() {
+        let data = [1, 2, 3];
+        let encoded = encode_vec_including_sentinels(&data);
+        assert_eq!(*encoded.first().unwrap(), 0);
+        assert_eq!(*encoded.last().unwrap(), 0);
+        let data_decoded = decode_vec(&encoded).unwrap();
+        assert_eq!(data_decoded, data);
+        let data_decoded = decode_vec(&encoded[1..]).unwrap();
+        assert_eq!(data_decoded, data);
+        let data_decoded = decode_vec(&encoded[1..encoded.len() - 1]).unwrap();
+        assert_eq!(data_decoded, data);
+    }
+
     fn test_roundtrip(source: &[u8]) {
         let mut encoded = encode_vec(source);
         // Terminate the frame.

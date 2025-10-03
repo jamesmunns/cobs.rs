@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 # [unreleased]
 
+## Added
+
+- New API to encoded data including the sentinel bytes:
+  - `encode_including_sentinels`
+  - `try_encode_including_sentinels`
+  - `encode_vec_including_sentinels`
+
 # [v0.4.0] 2025-06-21
 
 ## Fixed

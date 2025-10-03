@@ -27,7 +27,7 @@
 //!   structures and error types.
 //! - [`serde`](https://serde.rs/): Adds `serde` derives on some data structures and error types.
 #![no_std]
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #[cfg(feature = "alloc")]
 extern crate alloc;
 #[cfg(feature = "std")]

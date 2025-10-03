@@ -1,26 +1,11 @@
-/// The [`CobsDecoder`] type is used to decode a stream of bytes to a
-/// given mutable output slice. This is often useful when heap data
-/// structures are not available, or when not all message bytes are
-/// received at a single point in time.
-#[derive(Debug)]
-pub struct CobsDecoder<'a> {
-    /// Destination slice for decoded message
-    dest: &'a mut [u8],
-
-    /// Index of next byte to write in `dest`
-    dest_idx: usize,
-
-    /// Decoder state as an enum
-    state: DecoderState,
-}
-
 /// The [`DecoderState`] is used to track the current state of a
 /// streaming decoder. This struct does not contain the output buffer
 /// (or a reference to one), and can be used when streaming the decoded
 /// output to a custom data type.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub enum DecoderState {
     /// State machine has not received any non-zero bytes
+    #[default]
     Idle,
 
     /// 1-254 bytes, can be header or 00
@@ -149,26 +134,24 @@ impl DecoderState {
     }
 }
 
-impl<'a> CobsDecoder<'a> {
-    /// Create a new streaming Cobs Decoder. Provide the output buffer
-    /// for the decoded message to be placed in
-    pub fn new(dest: &'a mut [u8]) -> CobsDecoder<'a> {
-        CobsDecoder {
-            dest,
+#[derive(Debug, Default)]
+struct CobsDecoderInner {
+    /// Index of next byte to write in `dest`
+    dest_idx: usize,
+
+    /// Decoder state as an enum
+    state: DecoderState,
+}
+
+impl CobsDecoderInner {
+    const fn new() -> Self {
+        Self {
             dest_idx: 0,
             state: DecoderState::Idle,
         }
     }
 
-    /// Push a single byte into the streaming CobsDecoder. Return values mean:
-    ///
-    /// * Ok(None) - State machine okay, more data needed
-    /// * Ok(Some(N)) - A message of N bytes was successfully decoded
-    /// * Err([DecodeError]) - Message decoding failed
-    ///
-    /// NOTE: Sentinel value must be included in the input to this function for the
-    /// decoding to complete
-    pub fn feed(&mut self, data: u8) -> Result<Option<usize>, DecodeError> {
+    fn feed(&mut self, dest: &mut [u8], data: u8) -> Result<Option<usize>, DecodeError> {
         match self.state.feed(data) {
             Err(_) => Err(DecodeError::InvalidFrame {
                 decoded_bytes: self.dest_idx,
@@ -179,7 +162,7 @@ impl<'a> CobsDecoder<'a> {
                 Ok(None)
             }
             Ok(DecodeResult::DataContinue(n)) => {
-                add(self.dest, self.dest_idx, n)?;
+                add(dest, self.dest_idx, n)?;
                 self.dest_idx += 1;
                 Ok(None)
             }
@@ -201,9 +184,13 @@ impl<'a> CobsDecoder<'a> {
     ///
     /// NOTE: Sentinel value must be included in the input to this function for the
     /// decoding to complete
-    pub fn push(&mut self, data: &[u8]) -> Result<Option<DecodeReport>, DecodeError> {
-        for (consumed_idx, d) in data.iter().enumerate() {
-            let opt_decoded_bytes = self.feed(*d)?;
+    pub fn push(
+        &mut self,
+        dest: &mut [u8],
+        data: &[u8],
+    ) -> Result<Option<DecodeReport>, DecodeError> {
+        for (consumed_idx, byte) in data.iter().enumerate() {
+            let opt_decoded_bytes = self.feed(dest, *byte)?;
             if let Some(decoded_bytes_ct) = opt_decoded_bytes {
                 // convert from index to number of bytes consumed
                 return Ok(Some(DecodeReport {
@@ -214,6 +201,58 @@ impl<'a> CobsDecoder<'a> {
         }
 
         Ok(None)
+    }
+}
+
+/// The [`CobsDecoder`] type is used to decode a stream of bytes to a
+/// given mutable output slice. This is often useful when heap data
+/// structures are not available, or when not all message bytes are
+/// received at a single point in time.
+#[derive(Debug)]
+pub struct CobsDecoder<'a> {
+    /// Destination slice for decoded message
+    dest: &'a mut [u8],
+    inner: CobsDecoderInner,
+}
+
+impl<'a> CobsDecoder<'a> {
+    /// Create a new streaming Cobs Decoder. Provide the output buffer
+    /// for the decoded message to be placed in
+    pub const fn new(dest: &'a mut [u8]) -> CobsDecoder<'a> {
+        CobsDecoder {
+            dest,
+            inner: CobsDecoderInner::new(),
+        }
+    }
+
+    /// Push a single byte into the streaming CobsDecoder. Return values mean:
+    ///
+    /// * Ok(None) - State machine okay, more data needed
+    /// * Ok(Some(N)) - A message of N bytes was successfully decoded
+    /// * Err([DecodeError]) - Message decoding failed
+    ///
+    /// NOTE: Sentinel value must be included in the input to this function for the
+    /// decoding to complete
+    pub fn feed(&mut self, data: u8) -> Result<Option<usize>, DecodeError> {
+        self.inner.feed(self.dest, data)
+    }
+
+    /// Push a slice of bytes into the streaming CobsDecoder. Return values mean:
+    ///
+    /// * Ok(None) - State machine okay, more data needed
+    /// * Ok(Some([DecodeReport]))) - A message was successfully decoded. The parse size of the
+    ///   report specifies the consumed bytes of the passed data chunk.
+    /// * Err([DecodeError]) - Message decoding failed
+    ///
+    /// If the decoder is used for continuous decoding, the user must take care of feeding any
+    /// undecoded bytes of the input data back into the decoder. This can be done by
+    /// [Self::push]ing the undecoded bytes (the last X bytes of the input with X being the length
+    /// of the input minus the parsed length) into the decoder after a frame was decoded.
+    ///
+    /// NOTE: Sentinel value must be included in the input to this function for the
+    /// decoding to complete
+    pub fn push(&mut self, data: &[u8]) -> Result<Option<DecodeReport>, DecodeError> {
+        self.inner.push(self.dest, data)
     }
 
     /// Destination buffer which contains decoded frames.
@@ -233,23 +272,164 @@ impl<'a> CobsDecoder<'a> {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct DecodingResult {
-    frame_size: usize,
-    parsed_size: usize,
+/// The [`CobsDecoderHeapless`] type is used to decode a stream of bytes to a given mutable output
+/// slice. It owns the heapless decoding buffer.
+///
+/// This structure uses a heapless vector as the decoding buffer to avoid lifetimes.
+#[derive(Default, Debug)]
+pub struct CobsDecoderHeapless<const N: usize> {
+    /// Destination slice for decoded message
+    dest: heapless::Vec<u8, N>,
+    inner: CobsDecoderInner,
 }
 
-impl DecodingResult {
-    #[inline]
-    pub fn frame_size(&self) -> usize {
-        self.frame_size
+impl<const N: usize> CobsDecoderHeapless<N> {
+    /// This constructor internally creates the heapless vector.
+    pub fn new() -> Self {
+        let vec = heapless::Vec::new();
+        Self::new_with_vec(vec)
     }
 
+    /// This constructor allows passing the heapless vector to use.
+    ///
+    /// This can be useful to place the heapless vector into the static BSS section instead of the
+    /// stack.
+    pub fn new_with_vec(mut vec: heapless::Vec<u8, N>) -> Self {
+        vec.resize(vec.capacity(), 0).unwrap();
+        Self {
+            dest: vec,
+            inner: CobsDecoderInner::new(),
+        }
+    }
+
+    /// Push a single byte into the streaming CobsDecoder. Return values mean:
+    ///
+    /// * Ok(None) - State machine okay, more data needed
+    /// * Ok(Some(N)) - A message of N bytes was successfully decoded
+    /// * Err([DecodeError]) - Message decoding failed
+    ///
+    /// NOTE: Sentinel value must be included in the input to this function for the
+    /// decoding to complete
+    pub fn feed(&mut self, data: u8) -> Result<Option<usize>, DecodeError> {
+        self.inner.feed(&mut self.dest, data)
+    }
+
+    /// Push a slice of bytes into the streaming CobsDecoder. Return values mean:
+    ///
+    /// * Ok(None) - State machine okay, more data needed
+    /// * Ok(Some([DecodeReport]))) - A message was successfully decoded. The parse size of the
+    ///   report specifies the consumed bytes of the passed data chunk.
+    /// * Err([DecodeError]) - Message decoding failed
+    ///
+    /// If the decoder is used for continuous decoding, the user must take care of feeding any
+    /// undecoded bytes of the input data back into the decoder. This can be done by
+    /// [Self::push]ing the undecoded bytes (the last X bytes of the input with X being the length
+    /// of the input minus the parsed length) into the decoder after a frame was decoded.
+    ///
+    /// NOTE: Sentinel value must be included in the input to this function for the
+    /// decoding to complete
+    pub fn push(&mut self, data: &[u8]) -> Result<Option<DecodeReport>, DecodeError> {
+        self.inner.push(&mut self.dest, data)
+    }
+
+    /// Destination buffer which contains decoded frames.
     #[inline]
-    pub fn parsed_size(&self) -> usize {
-        self.parsed_size
+    pub fn dest(&self) -> &[u8] {
+        &self.dest
+    }
+
+    /// Destination buffer which contains decoded frames.
+    ///
+    /// This allows using the buffer for other purposes than decoding after a frame was found.
+    /// Changing the buffer in any other state might corrupt a frame which might currently be
+    /// decoded.
+    #[inline]
+    pub fn dest_mut(&mut self) -> &mut [u8] {
+        &mut self.dest
+    }
+
+    /// Reset the decoding state machine.
+    #[inline]
+    pub fn reset(&mut self) {
+        self.inner = Default::default();
+    }
+}
+
+/// The [`CobsDecoderOwned`] type is used to decode a stream of bytes to a given mutable output
+/// slice. It owns the decoding buffer.
+///
+/// This structure allocates the buffer once at construction but does not perform
+/// runtime allocations. This simplifies keeping a streaming decoder structure as a field
+/// of a structure because it does not require a lifetime.
+#[cfg(feature = "alloc")]
+#[derive(Debug)]
+pub struct CobsDecoderOwned {
+    /// Destination slice for decoded message
+    dest: alloc::vec::Vec<u8>,
+    inner: CobsDecoderInner,
+}
+
+#[cfg(feature = "alloc")]
+impl CobsDecoderOwned {
+    /// Create a new streaming Cobs Decoder. Provide the output buffer
+    /// for the decoded message to be placed in
+    pub fn new(dest_buf_size: usize) -> Self {
+        Self {
+            dest: alloc::vec![0; dest_buf_size],
+            inner: CobsDecoderInner::new(),
+        }
+    }
+
+    /// Push a single byte into the streaming CobsDecoder. Return values mean:
+    ///
+    /// * Ok(None) - State machine okay, more data needed
+    /// * Ok(Some(N)) - A message of N bytes was successfully decoded
+    /// * Err([DecodeError]) - Message decoding failed
+    ///
+    /// NOTE: Sentinel value must be included in the input to this function for the
+    /// decoding to complete
+    pub fn feed(&mut self, data: u8) -> Result<Option<usize>, DecodeError> {
+        self.inner.feed(&mut self.dest, data)
+    }
+
+    /// Push a slice of bytes into the streaming CobsDecoder. Return values mean:
+    ///
+    /// * Ok(None) - State machine okay, more data needed
+    /// * Ok(Some([DecodeReport]))) - A message was successfully decoded. The parse size of the
+    ///   report specifies the consumed bytes of the passed data chunk.
+    /// * Err([DecodeError]) - Message decoding failed
+    ///
+    /// If the decoder is used for continuous decoding, the user must take care of feeding any
+    /// undecoded bytes of the input data back into the decoder. This can be done by
+    /// [Self::push]ing the undecoded bytes (the last X bytes of the input with X being the length
+    /// of the input minus the parsed length) into the decoder after a frame was decoded.
+    ///
+    /// NOTE: Sentinel value must be included in the input to this function for the
+    /// decoding to complete
+    pub fn push(&mut self, data: &[u8]) -> Result<Option<DecodeReport>, DecodeError> {
+        self.inner.push(&mut self.dest, data)
+    }
+
+    /// Destination buffer which contains decoded frames.
+    #[inline]
+    pub fn dest(&self) -> &[u8] {
+        &self.dest
+    }
+
+    /// Destination buffer which contains decoded frames.
+    ///
+    /// This allows using the buffer for other purposes than decoding after a frame was found.
+    /// Changing the buffer in any other state might corrupt a frame which might currently be
+    /// decoded.
+    #[inline]
+    pub fn dest_mut(&mut self) -> &mut [u8] {
+        &mut self.dest
+    }
+
+    /// Reset the decoding state machine.
+    #[inline]
+    pub fn reset(&mut self) {
+        self.inner = Default::default();
     }
 }
 
@@ -283,7 +463,7 @@ pub fn decode(source: &[u8], dest: &mut [u8]) -> Result<DecodeReport, DecodeErro
 
     // Nope, no early message, no missing terminator, just failed to decode
     Err(DecodeError::InvalidFrame {
-        decoded_bytes: dec.dest_idx,
+        decoded_bytes: dec.inner.dest_idx,
     })
 }
 
@@ -423,13 +603,18 @@ pub fn decode_vec_with_sentinel(
     Ok(decoded)
 }
 
+#[deprecated(since = "0.5.0", note = "use DecodeReport instead")]
+pub type DecodingResult = DecodeReport;
+
 #[cfg(test)]
 mod tests {
+
+    use crate::{encode, encode_vec_including_sentinels};
 
     use super::*;
 
     #[test]
-    fn decode_malforemd() {
+    fn decode_malformed() {
         let malformed_buf: [u8; 32] = [
             68, 69, 65, 68, 66, 69, 69, 70, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0,
@@ -459,7 +644,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "alloc")]
     fn decode_target_buf_too_small() {
         let encoded = &[3, 10, 11, 2, 12];
         let expected_decoded_len = 4;
@@ -468,5 +652,161 @@ mod tests {
             let result = decode(encoded, &mut dest);
             assert_eq!(result, Err(DecodeError::TargetBufTooSmall));
         }
+    }
+
+    fn continuous_decoding(decoder: &mut CobsDecoder, expected_data: &[u8], encoded_frame: &[u8]) {
+        for _ in 0..10 {
+            for byte in encoded_frame.iter().take(encoded_frame.len() - 1) {
+                decoder.feed(*byte).unwrap();
+            }
+            if let Ok(Some(sz_msg)) = decoder.feed(encoded_frame[encoded_frame.len() - 1]) {
+                assert_eq!(sz_msg, expected_data.len());
+                assert_eq!(expected_data, &decoder.dest()[0..sz_msg]);
+            } else {
+                panic!("decoding call did not yield expected frame");
+            }
+        }
+    }
+
+    fn continuous_decoding_heapless(
+        decoder: &mut CobsDecoderHeapless<32>,
+        expected_data: &[u8],
+        encoded_frame: &[u8],
+    ) {
+        for _ in 0..10 {
+            for byte in encoded_frame.iter().take(encoded_frame.len() - 1) {
+                decoder.feed(*byte).unwrap();
+            }
+            if let Ok(Some(sz_msg)) = decoder.feed(encoded_frame[encoded_frame.len() - 1]) {
+                assert_eq!(sz_msg, expected_data.len());
+                assert_eq!(expected_data, &decoder.dest()[0..sz_msg]);
+            } else {
+                panic!("decoding call did not yield expected frame");
+            }
+        }
+    }
+
+    fn continuous_decoding_owned(
+        decoder: &mut CobsDecoderOwned,
+        expected_data: &[u8],
+        encoded_frame: &[u8],
+    ) {
+        for _ in 0..10 {
+            for byte in encoded_frame.iter().take(encoded_frame.len() - 1) {
+                decoder.feed(*byte).unwrap();
+            }
+            if let Ok(Some(sz_msg)) = decoder.feed(encoded_frame[encoded_frame.len() - 1]) {
+                assert_eq!(sz_msg, expected_data.len());
+                assert_eq!(expected_data, &decoder.dest()[0..sz_msg]);
+            } else {
+                panic!("decoding call did not yield expected frame");
+            }
+        }
+    }
+
+    #[test]
+    fn stream_continously() {
+        let mut dest: [u8; 16] = [0; 16];
+        let data = b"hello world";
+        let mut encoded_data: [u8; 16] = [0; 16];
+        let mut encoded_len = encode(data, &mut encoded_data);
+        // Sentinel byte at end.
+        encoded_data[encoded_len] = 0x00;
+        encoded_len += 1;
+        // Stream continously using only `push`. The decoding buffer should not overflow.
+        let mut decoder = CobsDecoder::new(&mut dest);
+        continuous_decoding(&mut decoder, data, &encoded_data[0..encoded_len]);
+    }
+
+    #[test]
+    fn stream_continously_owned() {
+        let data = b"hello world";
+        let mut encoded_data: [u8; 16] = [0; 16];
+        let mut encoded_len = encode(data, &mut encoded_data);
+        // Sentinel byte at end.
+        encoded_data[encoded_len] = 0x00;
+        encoded_len += 1;
+        // Stream continously using only `push`. The decoding buffer should not overflow.
+        let mut decoder = CobsDecoderOwned::new(32);
+        continuous_decoding_owned(&mut decoder, data, &encoded_data[0..encoded_len]);
+    }
+
+    #[test]
+    fn stream_continously_heapless() {
+        let data = b"hello world";
+        let mut encoded_data: [u8; 16] = [0; 16];
+        let mut encoded_len = encode(data, &mut encoded_data);
+        // Sentinel byte at end.
+        encoded_data[encoded_len] = 0x00;
+        encoded_len += 1;
+        // Stream continously using only `push`. The decoding buffer should not overflow.
+        let mut decoder = CobsDecoderHeapless::new();
+        continuous_decoding_heapless(&mut decoder, data, &encoded_data[0..encoded_len]);
+    }
+
+    #[test]
+    fn stream_continously_2() {
+        let mut dest: [u8; 16] = [0; 16];
+        let data = b"hello world";
+        let mut encoded_data: [u8; 16] = [0; 16];
+        let mut encoded_len = encode(data, &mut encoded_data[1..]);
+        // Sentinel byte at start and end.
+        encoded_data[0] = 0x00;
+        encoded_data[encoded_len + 1] = 0x00;
+        encoded_len += 2;
+        // Stream continously using only `push`. The decoding buffer should not overflow.
+        let mut decoder = CobsDecoder::new(&mut dest);
+        continuous_decoding(&mut decoder, data, &encoded_data[0..encoded_len]);
+    }
+
+    #[test]
+    fn stream_continously_2_owned() {
+        let data = b"hello world";
+        let mut encoded_data: [u8; 16] = [0; 16];
+        let mut encoded_len = encode(data, &mut encoded_data[1..]);
+        // Sentinel byte at start and end.
+        encoded_data[0] = 0x00;
+        encoded_data[encoded_len + 1] = 0x00;
+        encoded_len += 2;
+        // Stream continously using only `push`. The decoding buffer should not overflow.
+        let mut decoder = CobsDecoderOwned::new(32);
+        continuous_decoding_owned(&mut decoder, data, &encoded_data[0..encoded_len]);
+    }
+
+    #[test]
+    fn test_owned_decoder_push_function() {
+        let data = b"hello world";
+        let encoded_data = encode_vec_including_sentinels(data);
+        let mut decoder = CobsDecoderOwned::new(32);
+        let report = decoder.push(&encoded_data).unwrap().unwrap();
+        assert_eq!(report.parsed_size(), encoded_data.len());
+        assert_eq!(report.frame_size(), data.len());
+        assert_eq!(&decoder.dest()[0..report.frame_size()], data);
+        assert_eq!(&decoder.dest_mut()[0..report.frame_size()], data);
+    }
+
+    #[test]
+    fn test_decoder_push_function() {
+        let mut dest_buf: [u8; 32] = [0; 32];
+        let data = b"hello world";
+        let encoded_data = encode_vec_including_sentinels(data);
+        let mut decoder = CobsDecoder::new(&mut dest_buf);
+        let report = decoder.push(&encoded_data).unwrap().unwrap();
+        assert_eq!(report.parsed_size(), encoded_data.len());
+        assert_eq!(report.frame_size(), data.len());
+        assert_eq!(&decoder.dest()[0..report.frame_size()], data);
+        assert_eq!(&decoder.dest_mut()[0..report.frame_size()], data);
+    }
+
+    #[test]
+    fn test_decoder_heapless_push_function() {
+        let data = b"hello world";
+        let encoded_data = encode_vec_including_sentinels(data);
+        let mut decoder = CobsDecoderHeapless::<32>::new();
+        let report = decoder.push(&encoded_data).unwrap().unwrap();
+        assert_eq!(report.parsed_size(), encoded_data.len());
+        assert_eq!(report.frame_size(), data.len());
+        assert_eq!(&decoder.dest()[0..report.frame_size()], data);
+        assert_eq!(&decoder.dest_mut()[0..report.frame_size()], data);
     }
 }

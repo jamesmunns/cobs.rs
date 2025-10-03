@@ -1,15 +1,3 @@
-/// The [`CobsEncoder`] type is used to encode a stream of bytes to a given mutable output slice.
-///
-/// This is often useful when heap data structures are not available, or when not all message bytes
-/// are received at a single point in time.
-#[derive(Debug)]
-pub struct CobsEncoder<'a> {
-    dest: &'a mut [u8],
-    dest_idx: usize,
-    state: EncoderState,
-    might_be_done: bool,
-}
-
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -98,6 +86,18 @@ impl EncoderState {
     pub fn finalize(self) -> (usize, u8) {
         (self.code_idx, self.num_bt_sent)
     }
+}
+
+/// The [`CobsEncoder`] type is used to encode a stream of bytes to a given mutable output slice.
+///
+/// This is often useful when heap data structures are not available, or when not all message bytes
+/// are received at a single point in time.
+#[derive(Debug)]
+pub struct CobsEncoder<'a> {
+    dest: &'a mut [u8],
+    dest_idx: usize,
+    state: EncoderState,
+    might_be_done: bool,
 }
 
 impl<'a> CobsEncoder<'a> {
@@ -315,10 +315,50 @@ pub fn encode_vec_with_sentinel(source: &[u8], sentinel: u8) -> alloc::vec::Vec<
 
 #[cfg(test)]
 mod tests {
-    use crate::decode_vec;
-
-    #[cfg(feature = "alloc")]
     use super::*;
+    use crate::{
+        decode_vec,
+        tests::{test_decode_in_place, test_encode_decode_free_functions},
+    };
+
+    #[test]
+    fn test_encode_0() {
+        // An empty input is encoded as no characters.
+        let mut output = [0xFFu8; 16];
+        let used = encode(&[], &mut output);
+        assert_eq!(used, 1);
+        assert_eq!(output[0], 0x01);
+    }
+
+    fn test_pair(source: &[u8], encoded: &[u8]) {
+        test_encode_decode_free_functions(source, encoded);
+        test_decode_in_place(source, encoded);
+    }
+
+    #[test]
+    fn test_encode_1() {
+        test_pair(&[10, 11, 0, 12], &[3, 10, 11, 2, 12])
+    }
+
+    #[test]
+    fn test_encode_empty() {
+        test_pair(&[], &[1])
+    }
+
+    #[test]
+    fn test_encode_2() {
+        test_pair(&[0, 0, 1, 0], &[1, 1, 2, 1, 1])
+    }
+
+    #[test]
+    fn test_encode_3() {
+        test_pair(&[255, 0], &[2, 255, 1])
+    }
+
+    #[test]
+    fn test_encode_4() {
+        test_pair(&[1], &[2, 1])
+    }
 
     #[test]
     fn encode_target_buf_too_small() {

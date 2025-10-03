@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   - `encode_including_sentinels`
   - `try_encode_including_sentinels`
   - `encode_vec_including_sentinels`
+- `CobsDecoderOwned` which owns the decoding buffer and does not require lifetimes.
+- `CobsDecoderHeapless` which owns the heapless decoding buffer and does not require lifetimes.
 
 # [v0.4.0] 2025-06-21
 

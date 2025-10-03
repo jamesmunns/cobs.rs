@@ -66,6 +66,38 @@ mod tests {
     // Usable in const context
     const ENCODED_BUF: [u8; max_encoding_length(5)] = [0; max_encoding_length(5)];
 
+    pub(crate) fn test_encode_decode_free_functions(source: &[u8], encoded: &[u8]) {
+        let mut test_encoded = encoded.to_vec();
+        let mut test_decoded = source.to_vec();
+
+        // Mangle data to ensure data is re-populated correctly
+        test_encoded.iter_mut().for_each(|i| *i = 0x80);
+        encode(source, &mut test_encoded[..]);
+        test_encoded.push(0x00);
+
+        // Mangle data to ensure data is re-populated correctly
+        test_decoded.iter_mut().for_each(|i| *i = 0x80);
+        decode(&test_encoded, &mut test_decoded[..]).unwrap();
+        assert_eq!(encoded, &test_encoded[..test_encoded.len() - 1]);
+        assert_eq!(source, test_decoded);
+    }
+
+    pub(crate) fn test_decode_in_place(source: &[u8], encoded: &[u8]) {
+        let mut test_encoded = encoded.to_vec();
+        let report = decode_in_place_report(&mut test_encoded).unwrap();
+        assert_eq!(&test_encoded[0..report.frame_size()], source);
+        assert_eq!(report.parsed_size(), encoded.len());
+
+        test_encoded = encoded.to_vec();
+        let result = decode_in_place(&mut test_encoded).unwrap();
+        assert_eq!(&test_encoded[0..result], source);
+    }
+
+    pub(crate) fn test_pair(source: &[u8], encoded: &[u8]) {
+        test_encode_decode_free_functions(source, encoded);
+        test_decode_in_place(source, encoded);
+    }
+
     #[test]
     fn test_buf_len() {
         assert_eq!(ENCODED_BUF.len(), 6);
@@ -90,67 +122,6 @@ mod tests {
     #[test]
     fn test_overhead_two() {
         assert_eq!(max_encoding_overhead(255), 2);
-    }
-
-    fn test_pair(source: &[u8], encoded: &[u8]) {
-        test_encode_decode_free_functions(source, encoded);
-        test_decode_in_place(source, encoded);
-    }
-
-    fn test_encode_decode_free_functions(source: &[u8], encoded: &[u8]) {
-        let mut test_encoded = encoded.to_vec();
-        let mut test_decoded = source.to_vec();
-
-        // Mangle data to ensure data is re-populated correctly
-        test_encoded.iter_mut().for_each(|i| *i = 0x80);
-        encode(source, &mut test_encoded[..]);
-        test_encoded.push(0x00);
-
-        // Mangle data to ensure data is re-populated correctly
-        test_decoded.iter_mut().for_each(|i| *i = 0x80);
-        decode(&test_encoded, &mut test_decoded[..]).unwrap();
-        assert_eq!(encoded, &test_encoded[..test_encoded.len() - 1]);
-        assert_eq!(source, test_decoded);
-    }
-
-    fn test_decode_in_place(source: &[u8], encoded: &[u8]) {
-        let mut test_encoded = encoded.to_vec();
-        let report = decode_in_place_report(&mut test_encoded).unwrap();
-        assert_eq!(&test_encoded[0..report.frame_size()], source);
-        assert_eq!(report.parsed_size(), encoded.len());
-
-        test_encoded = encoded.to_vec();
-        let result = decode_in_place(&mut test_encoded).unwrap();
-        assert_eq!(&test_encoded[0..result], source);
-    }
-
-    #[test]
-    fn stream_continously() {
-        let mut dest: [u8; 16] = [0; 16];
-        let data = b"hello world";
-        let mut encoded_data: [u8; 16] = [0; 16];
-        let mut encoded_len = encode(data, &mut encoded_data);
-        // Sentinel byte at end.
-        encoded_data[encoded_len] = 0x00;
-        encoded_len += 1;
-        // Stream continously using only `push`. The decoding buffer should not overflow.
-        let mut decoder = CobsDecoder::new(&mut dest);
-        continuous_decoding(&mut decoder, data, &encoded_data[0..encoded_len]);
-    }
-
-    #[test]
-    fn stream_continously_2() {
-        let mut dest: [u8; 16] = [0; 16];
-        let data = b"hello world";
-        let mut encoded_data: [u8; 16] = [0; 16];
-        let mut encoded_len = encode(data, &mut encoded_data[1..]);
-        // Sentinel byte at start and end.
-        encoded_data[0] = 0x00;
-        encoded_data[encoded_len + 1] = 0x00;
-        encoded_len += 2;
-        // Stream continously using only `push`. The decoding buffer should not overflow.
-        let mut decoder = CobsDecoder::new(&mut dest);
-        continuous_decoding(&mut decoder, data, &encoded_data[0..encoded_len]);
     }
 
     #[test]
@@ -221,20 +192,6 @@ mod tests {
         }
     }
 
-    fn continuous_decoding(decoder: &mut CobsDecoder, expected_data: &[u8], encoded_frame: &[u8]) {
-        for _ in 0..10 {
-            for byte in encoded_frame.iter().take(encoded_frame.len() - 1) {
-                decoder.feed(*byte).unwrap();
-            }
-            if let Ok(Some(sz_msg)) = decoder.feed(encoded_frame[encoded_frame.len() - 1]) {
-                assert_eq!(sz_msg, expected_data.len());
-                assert_eq!(expected_data, &decoder.dest()[0..sz_msg]);
-            } else {
-                panic!("decoding call did not yield expected frame");
-            }
-        }
-    }
-
     #[test]
     fn stream_roundtrip() {
         for ct in 1..=1000 {
@@ -280,40 +237,6 @@ mod tests {
         assert_eq!(max_encoding_length(255), 257);
         assert_eq!(max_encoding_length(254 * 2), 255 * 2);
         assert_eq!(max_encoding_length(254 * 2 + 1), 256 * 2);
-    }
-
-    #[test]
-    fn test_encode_0() {
-        // An empty input is encoded as no characters.
-        let mut output = [0xFFu8; 16];
-        let used = encode(&[], &mut output);
-        assert_eq!(used, 1);
-        assert_eq!(output[0], 0x01);
-    }
-
-    #[test]
-    fn test_encode_1() {
-        test_pair(&[10, 11, 0, 12], &[3, 10, 11, 2, 12])
-    }
-
-    #[test]
-    fn test_encode_empty() {
-        test_pair(&[], &[1])
-    }
-
-    #[test]
-    fn test_encode_2() {
-        test_pair(&[0, 0, 1, 0], &[1, 1, 2, 1, 1])
-    }
-
-    #[test]
-    fn test_encode_3() {
-        test_pair(&[255, 0], &[2, 255, 1])
-    }
-
-    #[test]
-    fn test_encode_4() {
-        test_pair(&[1], &[2, 1])
     }
 
     #[test]

@@ -27,6 +27,7 @@ use_std = ["std"]
 thiserror = { version = "2", default-features = false }
 defmt = { version = "1", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
+heapless = "0.9"
 
 [dev-dependencies]
 quickcheck = "1"

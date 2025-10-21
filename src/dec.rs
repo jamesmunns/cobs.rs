@@ -58,7 +58,7 @@ pub enum DecodeError {
 }
 
 impl DecoderState {
-    /// Push a single encoded byte into the state machine. If the input was
+    /// Feed a single encoded byte into the state machine. If the input was
     /// unexpected, such as an early end of a framed message segment, an Error will
     /// be returned, and the current associated output buffer contents should be discarded.
     ///
@@ -151,6 +151,14 @@ impl CobsDecoderInner {
         }
     }
 
+    /// Feed a single byte into the streaming CobsDecoder. Return values mean:
+    ///
+    /// * Ok(None) - State machine okay, more data needed
+    /// * Ok(Some(N)) - A message of N bytes was successfully decoded
+    /// * Err([DecodeError]) - Message decoding failed
+    ///
+    /// NOTE: Sentinel value must be included in the input to this function for the
+    /// decoding to complete
     fn feed(&mut self, dest: &mut [u8], data: u8) -> Result<Option<usize>, DecodeError> {
         match self.state.feed(data) {
             Err(_) => Err(DecodeError::InvalidFrame {
@@ -225,7 +233,7 @@ impl<'a> CobsDecoder<'a> {
         }
     }
 
-    /// Push a single byte into the streaming CobsDecoder. Return values mean:
+    /// Feed a single byte into the streaming decoder. Return values mean:
     ///
     /// * Ok(None) - State machine okay, more data needed
     /// * Ok(Some(N)) - A message of N bytes was successfully decoded
@@ -302,7 +310,7 @@ impl<const N: usize> CobsDecoderHeapless<N> {
         }
     }
 
-    /// Push a single byte into the streaming CobsDecoder. Return values mean:
+    /// Feed a single byte into the streaming decoder. Return values mean:
     ///
     /// * Ok(None) - State machine okay, more data needed
     /// * Ok(Some(N)) - A message of N bytes was successfully decoded
@@ -380,7 +388,7 @@ impl CobsDecoderOwned {
         }
     }
 
-    /// Push a single byte into the streaming CobsDecoder. Return values mean:
+    /// Feed a single byte into the streaming decoder. Return values mean:
     ///
     /// * Ok(None) - State machine okay, more data needed
     /// * Ok(Some(N)) - A message of N bytes was successfully decoded

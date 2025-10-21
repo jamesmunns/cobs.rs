@@ -1,6 +1,6 @@
 [package]
 name = "cobs"
-version = "0.4.0"
+version = "0.5.0"
 authors = [
   "Allen Welkie <>",
   "James Munns <james@onevariable.com>",
@@ -14,7 +14,8 @@ description = """
     in a serial communication channel. """
 repository = "https://github.com/jamesmunns/cobs.rs"
 keywords = ["consistent", "overhead", "byte", "stuffing", "encoding"]
-edition = "2021"
+edition = "2024"
+rust-version = "1.86"
 
 [features]
 default = ["std"]

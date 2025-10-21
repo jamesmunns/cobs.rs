@@ -355,7 +355,7 @@ mod tests {
     #[cfg(feature = "alloc")]
     mod alloc_tests {
         use super::*;
-        use quickcheck::{quickcheck, TestResult};
+        use quickcheck::{TestResult, quickcheck};
 
         #[test]
         fn test_roundtrip_1() {

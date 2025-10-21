@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 # [unreleased]
 
+# [v0.5.0] 2025-10-21
+
+- Introduce MSRV, which is Rust 1.86
+- Move to Rust edition 2024
+
 ## Added
 
 - New API to encoded data including the sentinel bytes:
@@ -78,5 +83,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Fixed wrong encoded length when source length was divisible by 254.
   [#19](https://github.com/jamesmunns/cobs.rs/issues/19)
 
-[unreleased]: https://github.com/jamesmunns/cobs.rs/compare/v0.4.0...HEAD
+[unreleased]: https://github.com/jamesmunns/cobs.rs/compare/v0.5.0...HEAD
+[v0.5.0]: https://github.com/jamesmunns/cobs.rs/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/jamesmunns/cobs.rs/compare/v0.3.0...v0.4.0

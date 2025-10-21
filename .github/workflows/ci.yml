@@ -47,6 +47,14 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all -- --check
 
+  msrv:
+    name: Check MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.86
+      - run: cargo check
+
   docs:
     name: Check Documentation Build
     runs-on: ubuntu-latest

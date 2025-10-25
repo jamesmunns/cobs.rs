@@ -84,7 +84,7 @@ impl DecoderState {
             (Idle, n) => (Ok(DataStart), Grab(n - 1)),
 
             // We have reached the end of a data run indicated by an overhead
-            // byte, AND we have recieved the message terminator. This was a
+            // byte, AND we have received the message terminator. This was a
             // well framed message!
             (Grab(0), 0x00) => (Ok(DataComplete), Idle),
 
@@ -108,7 +108,7 @@ impl DecoderState {
             (Grab(i), n) => (Ok(DataContinue(n)), Grab(*i - 1)),
 
             // We have reached the end of a data run indicated by an overhead
-            // byte, AND we have recieved the message terminator. This was a
+            // byte, AND we have received the message terminator. This was a
             // well framed message!
             (GrabChain(0), 0x00) => (Ok(DataComplete), Idle),
 
@@ -713,7 +713,7 @@ mod tests {
     }
 
     #[test]
-    fn stream_continously() {
+    fn stream_continuously() {
         let mut dest: [u8; 16] = [0; 16];
         let data = b"hello world";
         let mut encoded_data: [u8; 16] = [0; 16];
@@ -721,39 +721,39 @@ mod tests {
         // Sentinel byte at end.
         encoded_data[encoded_len] = 0x00;
         encoded_len += 1;
-        // Stream continously using only `push`. The decoding buffer should not overflow.
+        // Stream continuously using only `push`. The decoding buffer should not overflow.
         let mut decoder = CobsDecoder::new(&mut dest);
         continuous_decoding(&mut decoder, data, &encoded_data[0..encoded_len]);
     }
 
     #[test]
-    fn stream_continously_owned() {
+    fn stream_continuously_owned() {
         let data = b"hello world";
         let mut encoded_data: [u8; 16] = [0; 16];
         let mut encoded_len = encode(data, &mut encoded_data);
         // Sentinel byte at end.
         encoded_data[encoded_len] = 0x00;
         encoded_len += 1;
-        // Stream continously using only `push`. The decoding buffer should not overflow.
+        // Stream continuously using only `push`. The decoding buffer should not overflow.
         let mut decoder = CobsDecoderOwned::new(32);
         continuous_decoding_owned(&mut decoder, data, &encoded_data[0..encoded_len]);
     }
 
     #[test]
-    fn stream_continously_heapless() {
+    fn stream_continuously_heapless() {
         let data = b"hello world";
         let mut encoded_data: [u8; 16] = [0; 16];
         let mut encoded_len = encode(data, &mut encoded_data);
         // Sentinel byte at end.
         encoded_data[encoded_len] = 0x00;
         encoded_len += 1;
-        // Stream continously using only `push`. The decoding buffer should not overflow.
+        // Stream continuously using only `push`. The decoding buffer should not overflow.
         let mut decoder = CobsDecoderHeapless::new();
         continuous_decoding_heapless(&mut decoder, data, &encoded_data[0..encoded_len]);
     }
 
     #[test]
-    fn stream_continously_2() {
+    fn stream_continuously_2() {
         let mut dest: [u8; 16] = [0; 16];
         let data = b"hello world";
         let mut encoded_data: [u8; 16] = [0; 16];
@@ -762,13 +762,13 @@ mod tests {
         encoded_data[0] = 0x00;
         encoded_data[encoded_len + 1] = 0x00;
         encoded_len += 2;
-        // Stream continously using only `push`. The decoding buffer should not overflow.
+        // Stream continuously using only `push`. The decoding buffer should not overflow.
         let mut decoder = CobsDecoder::new(&mut dest);
         continuous_decoding(&mut decoder, data, &encoded_data[0..encoded_len]);
     }
 
     #[test]
-    fn stream_continously_2_owned() {
+    fn stream_continuously_2_owned() {
         let data = b"hello world";
         let mut encoded_data: [u8; 16] = [0; 16];
         let mut encoded_len = encode(data, &mut encoded_data[1..]);
@@ -776,7 +776,7 @@ mod tests {
         encoded_data[0] = 0x00;
         encoded_data[encoded_len + 1] = 0x00;
         encoded_len += 2;
-        // Stream continously using only `push`. The decoding buffer should not overflow.
+        // Stream continuously using only `push`. The decoding buffer should not overflow.
         let mut decoder = CobsDecoderOwned::new(32);
         continuous_decoding_owned(&mut decoder, data, &encoded_data[0..encoded_len]);
     }

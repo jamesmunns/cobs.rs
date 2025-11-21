@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 # [unreleased]
 
+## Changed
+
+- Bumped MSRV to Rust 1.87 to allow `heapless` update.
+
 # [v0.5.0] 2025-10-21
 
 - Introduce MSRV, which is Rust 1.86

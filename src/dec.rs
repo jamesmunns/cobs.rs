@@ -1,5 +1,3 @@
-use crate::DecoderState::Idle;
-
 /// The [`DecoderState`] is used to track the current state of a
 /// streaming decoder. This struct does not contain the output buffer
 /// (or a reference to one), and can be used when streaming the decoded
@@ -89,7 +87,7 @@ impl DecoderState {
                         // We have reached the end of a data run indicated by an overhead
                         // byte, and the next segment of 254 bytes will have no modified
                         // sentinel bytes
-                         0xFF => (Ok(DataContinue(0)), GrabChain(0xFE)),
+                        0xFF => (Ok(DataContinue(0)), GrabChain(0xFE)),
 
                         // We have reached the end of a data run indicated by an overhead
                         // byte, and we will treat this byte as a modified sentinel byte.
@@ -108,7 +106,7 @@ impl DecoderState {
                 if *i > 0 && n > 0 {
                     // We have not yet reached the end of a data run, decrement the run
                     // counter, and place the byte into the decoded output
-                   (Ok(DataContinue(n)), GrabChain(*i - 1))
+                    (Ok(DataContinue(n)), GrabChain(*i - 1))
                 } else if *i == 0 {
                     match n {
                         // We have reached the end of a data run indicated by an overhead
@@ -631,7 +629,6 @@ pub type DecodingResult = DecodeReport;
 
 #[cfg(test)]
 mod tests {
-
     use crate::{encode, encode_vec_including_sentinels};
 
     use super::*;

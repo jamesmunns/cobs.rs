@@ -70,18 +70,15 @@ impl DecoderState {
     pub fn feed(&mut self, data: u8) -> Result<DecodeResult, DecodeError> {
         use DecodeResult::*;
         use DecoderState::*;
+
         let (ret, state) = match (&self, data) {
-            // Currently Idle, received a terminator, ignore, stay idle
-            (Idle, 0x00) => (Ok(NoData), Idle),
+            // We have not yet reached the end of a data run, decrement the run
+            // counter, and place the byte into the decoded output
+            (Grab(i), n) if *i > 0 && n > 0 => (Ok(DataContinue(n)), Grab(*i - 1)),
 
-            // Currently Idle, received a byte indicating the
-            // next 255 bytes have no zeroes, so we will have 254 unmodified
-            // data bytes, then an overhead byte
-            (Idle, 0xFF) => (Ok(DataStart), GrabChain(0xFE)),
-
-            // Currently Idle, received a byte indicating there will be a
-            // zero that must be modified in the next 1..=254 bytes
-            (Idle, n) => (Ok(DataStart), Grab(n - 1)),
+            // We have not yet reached the end of a data run, decrement the run
+            // counter, and place the byte into the decoded output
+            (GrabChain(i), n) if *i > 0 && n > 0  => (Ok(DataContinue(n)), GrabChain(*i - 1)),
 
             // We have reached the end of a data run indicated by an overhead
             // byte, AND we have received the message terminator. This was a
@@ -127,6 +124,18 @@ impl DecoderState {
             // We have not yet reached the end of a data run, decrement the run
             // counter, and place the byte into the decoded output
             (GrabChain(i), n) => (Ok(DataContinue(n)), GrabChain(*i - 1)),
+
+            // Currently Idle, received a terminator, ignore, stay idle
+            (Idle, 0x00) => (Ok(NoData), Idle),
+
+            // Currently Idle, received a byte indicating the
+            // next 255 bytes have no zeroes, so we will have 254 unmodified
+            // data bytes, then an overhead byte
+            (Idle, 0xFF) => (Ok(DataStart), GrabChain(0xFE)),
+
+            // Currently Idle, received a byte indicating there will be a
+            // zero that must be modified in the next 1..=254 bytes
+            (Idle, n) => (Ok(DataStart), Grab(n - 1)),
         };
 
         *self = state;

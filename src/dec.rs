@@ -70,7 +70,65 @@ impl DecoderState {
     pub fn feed(&mut self, data: u8) -> Result<DecodeResult, DecodeError> {
         use DecodeResult::*;
         use DecoderState::*;
+
         let (ret, state) = match (&self, data) {
+            (Grab(i), n) => {
+                if *i > 0 && n > 0 {
+                    // We have not yet reached the end of a data run, decrement the run
+                    // counter, and place the byte into the decoded output
+                    (Ok(DataContinue(n)), Grab(*i - 1))
+                } else if *i == 0 {
+                    match n {
+                        // We have reached the end of a data run indicated by an overhead
+                        // byte, AND we have received the message terminator. This was a
+                        // well framed message!
+                        0x00 => (Ok(DataComplete), Idle),
+
+                        // We have reached the end of a data run indicated by an overhead
+                        // byte, and the next segment of 254 bytes will have no modified
+                        // sentinel bytes
+                        0xFF => (Ok(DataContinue(0)), GrabChain(0xFE)),
+
+                        // We have reached the end of a data run indicated by an overhead
+                        // byte, and we will treat this byte as a modified sentinel byte.
+                        // place the sentinel byte in the output, and begin processing the
+                        // next non-sentinel sequence
+                        n => (Ok(DataContinue(0)), Grab(n - 1)),
+                    }
+                } else {
+                    // We were not expecting the sequence to terminate, but here we are.
+                    // Report an error due to early terminated message
+                    (Err(DecodeError::InvalidFrame { decoded_bytes: 0 }), Idle)
+                }
+            }
+
+            (GrabChain(i), n) => {
+                if *i > 0 && n > 0 {
+                    // We have not yet reached the end of a data run, decrement the run
+                    // counter, and place the byte into the decoded output
+                    (Ok(DataContinue(n)), GrabChain(*i - 1))
+                } else if *i == 0 {
+                    match n {
+                        // We have reached the end of a data run indicated by an overhead
+                        // byte, AND we have received the message terminator. This was a
+                        // well framed message!
+                        0x00 => (Ok(DataComplete), Idle),
+
+                        // We have reached the end of a data run, and we will begin another
+                        // data run with an overhead byte expected at the end
+                        0xFF => (Ok(NoData), GrabChain(0xFE)),
+
+                        // We have reached the end of a data run, and we will expect `n` data
+                        // bytes unmodified, followed by a sentinel byte that must be modified
+                        n => (Ok(NoData), Grab(n - 1)),
+                    }
+                } else {
+                    // We were not expecting the sequence to terminate, but here we are.
+                    // Report an error due to early terminated message
+                    (Err(DecodeError::InvalidFrame { decoded_bytes: 0 }), Idle)
+                }
+            }
+
             // Currently Idle, received a terminator, ignore, stay idle
             (Idle, 0x00) => (Ok(NoData), Idle),
 
@@ -82,51 +140,6 @@ impl DecoderState {
             // Currently Idle, received a byte indicating there will be a
             // zero that must be modified in the next 1..=254 bytes
             (Idle, n) => (Ok(DataStart), Grab(n - 1)),
-
-            // We have reached the end of a data run indicated by an overhead
-            // byte, AND we have received the message terminator. This was a
-            // well framed message!
-            (Grab(0), 0x00) => (Ok(DataComplete), Idle),
-
-            // We have reached the end of a data run indicated by an overhead
-            // byte, and the next segment of 254 bytes will have no modified
-            // sentinel bytes
-            (Grab(0), 0xFF) => (Ok(DataContinue(0)), GrabChain(0xFE)),
-
-            // We have reached the end of a data run indicated by an overhead
-            // byte, and we will treat this byte as a modified sentinel byte.
-            // place the sentinel byte in the output, and begin processing the
-            // next non-sentinel sequence
-            (Grab(0), n) => (Ok(DataContinue(0)), Grab(n - 1)),
-
-            // We were not expecting the sequence to terminate, but here we are.
-            // Report an error due to early terminated message
-            (Grab(_), 0) => (Err(DecodeError::InvalidFrame { decoded_bytes: 0 }), Idle),
-
-            // We have not yet reached the end of a data run, decrement the run
-            // counter, and place the byte into the decoded output
-            (Grab(i), n) => (Ok(DataContinue(n)), Grab(*i - 1)),
-
-            // We have reached the end of a data run indicated by an overhead
-            // byte, AND we have received the message terminator. This was a
-            // well framed message!
-            (GrabChain(0), 0x00) => (Ok(DataComplete), Idle),
-
-            // We have reached the end of a data run, and we will begin another
-            // data run with an overhead byte expected at the end
-            (GrabChain(0), 0xFF) => (Ok(NoData), GrabChain(0xFE)),
-
-            // We have reached the end of a data run, and we will expect `n` data
-            // bytes unmodified, followed by a sentinel byte that must be modified
-            (GrabChain(0), n) => (Ok(NoData), Grab(n - 1)),
-
-            // We were not expecting the sequence to terminate, but here we are.
-            // Report an error due to early terminated message
-            (GrabChain(_), 0) => (Err(DecodeError::InvalidFrame { decoded_bytes: 0 }), Idle),
-
-            // We have not yet reached the end of a data run, decrement the run
-            // counter, and place the byte into the decoded output
-            (GrabChain(i), n) => (Ok(DataContinue(n)), GrabChain(*i - 1)),
         };
 
         *self = state;
@@ -616,7 +629,6 @@ pub type DecodingResult = DecodeReport;
 
 #[cfg(test)]
 mod tests {
-
     use crate::{encode, encode_vec_including_sentinels};
 
     use super::*;

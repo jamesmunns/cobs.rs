@@ -208,8 +208,8 @@ pub fn encode(source: &[u8], dest: &mut [u8]) -> usize {
 /// # Panics
 ///
 /// This function will panic if the `dest` buffer is not large enough for the
-/// encoded message. You can calculate the size the `dest` buffer needs to be with
-/// the [crate::max_encoding_length] function.
+/// encoded message. You can calculate the size the `dest` buffer needs to be by adding
+/// the [crate::max_encoding_length] function output and 2.
 pub fn encode_including_sentinels(source: &[u8], dest: &mut [u8]) -> usize {
     if dest.len() < 2 {
         panic!("destination buffer too small");

@@ -8,9 +8,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 # [unreleased]
 
+# [v0.5.1] 2026-03-03
+
 ## Changed
 
-- Bumped MSRV to Rust 1.87 to allow `heapless` update.
+- Bumped MSRV to Rust 1.87 to allow `heapless` update, [#63](https://github.com/jamesmunns/cobs.rs/pull/63)
+- More efficient decoding implementation:
+  [#67](https://github.com/jamesmunns/cobs.rs/pull/67) and [#68](https://github.com/jamesmunns/cobs.rs/pull/68).
 
 # [v0.5.0] 2025-10-21
 
@@ -87,6 +91,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Fixed wrong encoded length when source length was divisible by 254.
   [#19](https://github.com/jamesmunns/cobs.rs/issues/19)
 
-[unreleased]: https://github.com/jamesmunns/cobs.rs/compare/v0.5.0...HEAD
+[unreleased]: https://github.com/jamesmunns/cobs.rs/compare/v0.5.1...HEAD
+[v0.5.1]: https://github.com/jamesmunns/cobs.rs/compare/v0.5.0...v0.5.1
 [v0.5.0]: https://github.com/jamesmunns/cobs.rs/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/jamesmunns/cobs.rs/compare/v0.3.0...v0.4.0

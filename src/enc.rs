@@ -316,6 +316,8 @@ pub fn encode_vec_with_sentinel(source: &[u8], sentinel: u8) -> alloc::vec::Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "alloc")]
     use crate::{
         decode_vec,
         tests::{test_decode_in_place, test_encode_decode_free_functions},
@@ -330,31 +332,37 @@ mod tests {
         assert_eq!(output[0], 0x01);
     }
 
+    #[cfg(feature = "alloc")]
     fn test_pair(source: &[u8], encoded: &[u8]) {
         test_encode_decode_free_functions(source, encoded);
         test_decode_in_place(source, encoded);
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn test_encode_1() {
         test_pair(&[10, 11, 0, 12], &[3, 10, 11, 2, 12])
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn test_encode_empty() {
         test_pair(&[], &[1])
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn test_encode_2() {
         test_pair(&[0, 0, 1, 0], &[1, 1, 2, 1, 1])
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn test_encode_3() {
         test_pair(&[255, 0], &[2, 255, 1])
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn test_encode_4() {
         test_pair(&[1], &[2, 1])
@@ -365,14 +373,15 @@ mod tests {
         let source = &[10, 11, 0, 12];
         let expected = &[3, 10, 11, 2, 12];
         for len in 0..expected.len() {
-            let mut dest = alloc::vec![0; len];
+            let mut dest = [0u8; 5];
             matches!(
-                try_encode(source, &mut dest).unwrap_err(),
+                try_encode(source, &mut dest[..len]).unwrap_err(),
                 DestBufTooSmallError
             );
         }
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn try_encode_with_sentinels() {
         let source = &[10, 11, 0, 12];
@@ -385,6 +394,7 @@ mod tests {
         assert_eq!(decode_vec(&dest).unwrap(), source);
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn test_encoding_including_sentinels() {
         let data = [1, 2, 3];
@@ -404,6 +414,6 @@ mod tests {
     fn encode_target_buf_too_small_panicking() {
         let source = &[10, 11, 0, 12];
         let expected = &[3, 10, 11, 2, 12];
-        encode(source, &mut alloc::vec![0; expected.len() - 1]);
+        encode(source, &mut [0u8; 5][..expected.len() - 1]);
     }
 }

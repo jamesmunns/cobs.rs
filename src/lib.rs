@@ -60,12 +60,16 @@ pub const fn max_encoding_length(source_len: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::vec;
-    use std::vec::Vec;
+
+    #[cfg(feature = "alloc")]
+    use alloc::vec;
+    #[cfg(feature = "alloc")]
+    use alloc::vec::Vec;
 
     // Usable in const context
     const ENCODED_BUF: [u8; max_encoding_length(5)] = [0; max_encoding_length(5)];
 
+    #[cfg(feature = "alloc")]
     pub(crate) fn test_encode_decode_free_functions(source: &[u8], encoded: &[u8]) {
         let mut test_encoded = encoded.to_vec();
         let mut test_decoded = source.to_vec();
@@ -82,6 +86,7 @@ mod tests {
         assert_eq!(source, test_decoded);
     }
 
+    #[cfg(feature = "alloc")]
     pub(crate) fn test_decode_in_place(source: &[u8], encoded: &[u8]) {
         let mut test_encoded = encoded.to_vec();
         let report = decode_in_place_report(&mut test_encoded).unwrap();
@@ -93,6 +98,7 @@ mod tests {
         assert_eq!(&test_encoded[0..result], source);
     }
 
+    #[cfg(feature = "alloc")]
     pub(crate) fn test_pair(source: &[u8], encoded: &[u8]) {
         test_encode_decode_free_functions(source, encoded);
         test_decode_in_place(source, encoded);
@@ -192,6 +198,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn stream_roundtrip() {
         for ct in 1..=1000 {
@@ -239,6 +246,7 @@ mod tests {
         assert_eq!(max_encoding_length(254 * 2 + 1), 256 * 2);
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn wikipedia_ex_6() {
         let mut unencoded: Vec<u8> = vec![];
@@ -253,6 +261,7 @@ mod tests {
         test_pair(&unencoded, &encoded);
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn wikipedia_ex_7() {
         let mut unencoded: Vec<u8> = vec![];
@@ -268,6 +277,7 @@ mod tests {
         test_pair(&unencoded, &encoded);
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn wikipedia_ex_8() {
         let mut unencoded: Vec<u8> = vec![];
@@ -284,6 +294,7 @@ mod tests {
         test_pair(&unencoded, &encoded);
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn wikipedia_ex_9() {
         let mut unencoded: Vec<u8> = vec![];
@@ -301,6 +312,7 @@ mod tests {
         test_pair(&unencoded, &encoded);
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn wikipedia_ex_10() {
         let mut unencoded: Vec<u8> = vec![];

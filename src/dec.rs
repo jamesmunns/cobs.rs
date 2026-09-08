@@ -629,9 +629,11 @@ pub type DecodingResult = DecodeReport;
 
 #[cfg(test)]
 mod tests {
-    use crate::{encode, encode_vec_including_sentinels};
-
     use super::*;
+    use crate::{encode, encode_including_sentinels};
+
+    #[cfg(feature = "alloc")]
+    use crate::encode_vec_including_sentinels;
 
     #[test]
     fn decode_malformed() {
@@ -668,8 +670,8 @@ mod tests {
         let encoded = &[3, 10, 11, 2, 12];
         let expected_decoded_len = 4;
         for i in 0..expected_decoded_len - 1 {
-            let mut dest = alloc::vec![0; i];
-            let result = decode(encoded, &mut dest);
+            let mut dest = [0u8; 4];
+            let result = decode(encoded, &mut dest[..i]);
             assert_eq!(result, Err(DecodeError::TargetBufTooSmall));
         }
     }
@@ -706,6 +708,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "alloc")]
     fn continuous_decoding_owned(
         decoder: &mut CobsDecoderOwned,
         expected_data: &[u8],
@@ -738,6 +741,7 @@ mod tests {
         continuous_decoding(&mut decoder, data, &encoded_data[0..encoded_len]);
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn stream_continuously_owned() {
         let data = b"hello world";
@@ -779,6 +783,7 @@ mod tests {
         continuous_decoding(&mut decoder, data, &encoded_data[0..encoded_len]);
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn stream_continuously_2_owned() {
         let data = b"hello world";
@@ -793,6 +798,7 @@ mod tests {
         continuous_decoding_owned(&mut decoder, data, &encoded_data[0..encoded_len]);
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn test_owned_decoder_push_function() {
         let data = b"hello world";
@@ -809,9 +815,11 @@ mod tests {
     fn test_decoder_push_function() {
         let mut dest_buf: [u8; 32] = [0; 32];
         let data = b"hello world";
-        let encoded_data = encode_vec_including_sentinels(data);
+        let mut encoded_buf = [0u8; 32];
+        let encoded_len = encode_including_sentinels(data, &mut encoded_buf);
+        let encoded_data = &encoded_buf[..encoded_len];
         let mut decoder = CobsDecoder::new(&mut dest_buf);
-        let report = decoder.push(&encoded_data).unwrap().unwrap();
+        let report = decoder.push(encoded_data).unwrap().unwrap();
         assert_eq!(report.parsed_size(), encoded_data.len());
         assert_eq!(report.frame_size(), data.len());
         assert_eq!(&decoder.dest()[0..report.frame_size()], data);
@@ -821,9 +829,11 @@ mod tests {
     #[test]
     fn test_decoder_heapless_push_function() {
         let data = b"hello world";
-        let encoded_data = encode_vec_including_sentinels(data);
+        let mut encoded_buf = [0u8; 32];
+        let encoded_len = encode_including_sentinels(data, &mut encoded_buf);
+        let encoded_data = &encoded_buf[..encoded_len];
         let mut decoder = CobsDecoderHeapless::<32>::new();
-        let report = decoder.push(&encoded_data).unwrap().unwrap();
+        let report = decoder.push(encoded_data).unwrap().unwrap();
         assert_eq!(report.parsed_size(), encoded_data.len());
         assert_eq!(report.frame_size(), data.len());
         assert_eq!(&decoder.dest()[0..report.frame_size()], data);

@@ -14,6 +14,8 @@ embedded:
 
 test:
   cargo nextest r --all-features
+  cargo nextest r --no-default-features
+  cargo nextest r --no-default-features --features alloc
   cargo test --doc
 
 build:

@@ -22,6 +22,8 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@nextest
       - run: cargo nextest run --all-features
+      - run: cargo nextest run --no-default-features
+      - run: cargo nextest run --no-default-features --features alloc
 
   cross-check:
     name: Check Cross-Compilation

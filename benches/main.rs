@@ -1,12 +1,11 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use rand::Rng;
 
 // Benchmarks the encoding speed for random input.
 fn bench_encode(c: &mut Criterion) {
     let mut group = c.benchmark_group("encode");
 
     for size in [16, 256, 4096, 65536, 262144, 1048576, 4194304] {
-        let data: Vec<u8> = rand::rng().random_iter().take(size).collect();
+        let data: Vec<u8> = rand::random_iter().take(size).collect();
         let mut buffer = vec![0u8; cobs::max_encoding_length(size)];
 
         group.throughput(Throughput::Bytes(size as u64));
@@ -24,7 +23,7 @@ fn bench_decode(c: &mut Criterion) {
     let mut group = c.benchmark_group("decode");
 
     for size in [16, 256, 4096, 65536, 262144, 1048576, 4194304] {
-        let data: Vec<u8> = rand::rng().random_iter().take(size).collect();
+        let data: Vec<u8> = rand::random_iter().take(size).collect();
         let mut encoded = vec![0u8; cobs::max_encoding_length(size)];
 
         let len = cobs::encode(&data, &mut encoded);

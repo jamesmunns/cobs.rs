@@ -1,7 +1,7 @@
 all: check build embedded test clippy fmt docs coverage
 
 clippy:
-  cargo clippy -- -D warnings
+  cargo clippy --all-targets -- -D warnings
 
 fmt:
   cargo fmt --all -- --check

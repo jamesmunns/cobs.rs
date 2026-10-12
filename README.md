@@ -17,8 +17,7 @@ See [the wikipedia article](https://www.wikipedia.org/wiki/Consistent_Overhead_B
 ### Default features
 
  - [`std`](https://doc.rust-lang.org/std/): Enables functionality relying on the standard library
-   and also activates the `alloc` feature. Currently only adds `std::error::Error` support for the
-   library error types.
+   and also activates the `alloc` feature.
  - [`alloc`](https://doc.rust-lang.org/alloc/): Enables features which operate on containers
    like [`alloc::vec::Vec`](https://doc.rust-lang.org/beta/alloc/vec/struct.Vec.html).
    Enabled by the `std` feature.

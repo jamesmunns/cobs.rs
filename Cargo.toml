@@ -19,13 +19,12 @@ rust-version = "1.87"
 
 [features]
 default = ["std"]
-std = ["alloc", "thiserror/std"]
+std = ["alloc"]
 alloc = []
 # Legacy feature for backwards compatibility
 use_std = ["std"]
 
 [dependencies]
-thiserror = { version = "2", default-features = false }
 defmt = { version = "1", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 heapless = "0.9"

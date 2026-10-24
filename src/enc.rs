@@ -1,8 +1,15 @@
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[error("out of bounds error during encoding")]
 pub struct DestBufTooSmallError;
+
+impl core::fmt::Display for DestBufTooSmallError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "out of bounds error during encoding")
+    }
+}
+
+impl core::error::Error for DestBufTooSmallError {}
 
 /// The [`EncoderState`] is used to track the current state of a streaming encoder. This struct
 /// does not contain the output buffer (or a reference to one), and can be used when streaming the

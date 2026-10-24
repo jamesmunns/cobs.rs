@@ -42,20 +42,32 @@ pub enum DecodeResult {
     DataContinue(u8),
 }
 
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DecodeError {
-    #[error("empty input frame")]
     EmptyFrame,
-    #[error("frame with invalid format, written {decoded_bytes:?} to decoded buffer")]
     InvalidFrame {
         /// Number of bytes written to the decoded buffer.
         decoded_bytes: usize,
     },
-    #[error("target buffer too small")]
     TargetBufTooSmall,
 }
+
+impl core::fmt::Display for DecodeError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::EmptyFrame => write!(f, "empty input frame"),
+            Self::InvalidFrame { decoded_bytes } => write!(
+                f,
+                "frame with invalid format, written {decoded_bytes:?} to decoded buffer"
+            ),
+            Self::TargetBufTooSmall => write!(f, "target buffer too small"),
+        }
+    }
+}
+
+impl core::error::Error for DecodeError {}
 
 impl DecoderState {
     /// Feed a single encoded byte into the state machine. If the input was

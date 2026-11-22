@@ -154,6 +154,11 @@ struct CobsDecoderInner {
 
     /// Decoder state as an enum
     state: DecoderState,
+
+    /// Set after a frame overflowed `dest`. When `discarding` is true, we'll
+    /// consume and not process data until the next `0x00` is received, to
+    /// avoid potentially reporting a truncated fragment as a valid message.
+    discarding: bool,
 }
 
 impl CobsDecoderInner {
@@ -161,6 +166,7 @@ impl CobsDecoderInner {
         Self {
             dest_idx: 0,
             state: DecoderState::Idle,
+            discarding: false,
         }
     }
 
@@ -173,6 +179,14 @@ impl CobsDecoderInner {
     /// NOTE: Sentinel value must be included in the input to this function for the
     /// decoding to complete
     fn feed(&mut self, dest: &mut [u8], data: u8) -> Result<Option<usize>, DecodeError> {
+        if self.discarding {
+            // If we get a 0, we can clear the discarding state.
+            if data == 0 {
+                self.discarding = false;
+                self.state = DecoderState::Idle;
+            }
+            return Ok(None);
+        }
         match self.state.feed(data) {
             Err(_) => Err(DecodeError::InvalidFrame {
                 decoded_bytes: self.dest_idx,
@@ -183,7 +197,10 @@ impl CobsDecoderInner {
                 Ok(None)
             }
             Ok(DecodeResult::DataContinue(n)) => {
-                add(dest, self.dest_idx, n)?;
+                if let Err(e) = add(dest, self.dest_idx, n) {
+                    self.discarding = true;
+                    return Err(e);
+                }
                 self.dest_idx += 1;
                 Ok(None)
             }
@@ -211,7 +228,20 @@ impl CobsDecoderInner {
         data: &[u8],
     ) -> Result<Option<DecodeReport>, DecodeError> {
         for (consumed_idx, byte) in data.iter().enumerate() {
-            let opt_decoded_bytes = self.feed(dest, *byte)?;
+            let opt_decoded_bytes = match self.feed(dest, *byte) {
+                Ok(v) => v,
+                Err(e) => {
+                    // After an overflow, finish dropping the bad frame within this input
+                    // if possible.
+                    for b in &data[consumed_idx + 1..] {
+                        if !self.discarding {
+                            break;
+                        }
+                        let _ = self.feed(dest, *b);
+                    }
+                    return Err(e);
+                }
+            };
             if let Some(decoded_bytes_ct) = opt_decoded_bytes {
                 // convert from index to number of bytes consumed
                 return Ok(Some(DecodeReport {
@@ -271,7 +301,10 @@ impl<'a> CobsDecoder<'a> {
     /// of the input minus the parsed length) into the decoder after a frame was decoded.
     ///
     /// NOTE: Sentinel value must be included in the input to this function for the
-    /// decoding to complete
+    /// decoding to complete.
+    ///
+    /// NOTE: On error, frames after the bad one in `data` are not decoded. Resume after the bad
+    /// frame's terminator, or push at most one frame at a time.
     pub fn push(&mut self, data: &[u8]) -> Result<Option<DecodeReport>, DecodeError> {
         self.inner.push(self.dest, data)
     }
@@ -349,6 +382,9 @@ impl<const N: usize> CobsDecoderHeapless<N> {
     ///
     /// NOTE: Sentinel value must be included in the input to this function for the
     /// decoding to complete
+    ///
+    /// NOTE: On error, frames after the bad one in `data` are not decoded. Resume after the bad
+    /// frame's terminator, or push at most one frame at a time.
     pub fn push(&mut self, data: &[u8]) -> Result<Option<DecodeReport>, DecodeError> {
         self.inner.push(&mut self.dest, data)
     }
@@ -427,6 +463,9 @@ impl CobsDecoderOwned {
     ///
     /// NOTE: Sentinel value must be included in the input to this function for the
     /// decoding to complete
+    ///
+    /// NOTE: On error, frames after the bad one in `data` are not decoded. Resume after the bad
+    /// frame's terminator, or push at most one frame at a time.
     pub fn push(&mut self, data: &[u8]) -> Result<Option<DecodeReport>, DecodeError> {
         self.inner.push(&mut self.dest, data)
     }
@@ -958,5 +997,61 @@ mod tests {
         assert_eq!(&buf[a + 1..end], &second[..]);
         let n = decode_in_place_with_sentinel(&mut buf[a + 1..end], 0xAA).unwrap();
         assert_eq!(&buf[a + 1..a + 1 + n], &[0x22]);
+    }
+
+    #[test]
+    fn stream_decoder_drops_overflowing_frame() {
+        // A 5-byte message into a 3-byte buffer, then a 1-byte message. The first frame
+        // must be reported once as an error, the second must decode normally.
+        let mut stream = [0u8; 16];
+        let a = encode(&[0x11, 0x22, 0x33, 0x44, 0x55], &mut stream);
+        stream[a] = 0x00;
+        let b = encode(&[0x66], &mut stream[a + 1..]);
+        stream[a + 1 + b] = 0x00;
+        let stream = &stream[..a + b + 2];
+
+        let mut dest = [0u8; 3];
+        let mut decoder = CobsDecoder::new(&mut dest);
+        let mut errors = 0;
+        let mut messages = [None; 2];
+        let mut message_count = 0;
+        for byte in stream {
+            match decoder.feed(*byte) {
+                Err(_) => errors += 1,
+                Ok(Some(n)) => {
+                    messages[message_count] = Some(n);
+                    message_count += 1;
+                }
+                Ok(None) => {}
+            }
+        }
+        assert_eq!(errors, 1);
+        assert_eq!(messages, [Some(1), None]);
+        assert_eq!(decoder.dest()[0], 0x66);
+
+        // With one push per frame: the bad frame's error is followed by the next frame.
+        let mut dest = [0u8; 3];
+        let mut decoder = CobsDecoder::new(&mut dest);
+        assert_eq!(
+            decoder.push(&stream[..a + 1]),
+            Err(DecodeError::TargetBufTooSmall)
+        );
+        let report = decoder.push(&stream[a + 1..]).unwrap().unwrap();
+        assert_eq!(report.frame_size(), 1);
+        assert_eq!(decoder.dest()[0], 0x66);
+
+        // With both frames in one push, the second is lost.
+        //
+        // `push` returns only the error and doesn't say where it stopped, but
+        // frames in the next push still decode.
+        let mut dest = [0u8; 3];
+        let mut decoder = CobsDecoder::new(&mut dest);
+        assert_eq!(decoder.push(stream), Err(DecodeError::TargetBufTooSmall));
+        let mut next = [0u8; 4];
+        let n = encode(&[0x77], &mut next);
+        next[n] = 0x00;
+        let report = decoder.push(&next[..n + 1]).unwrap().unwrap();
+        assert_eq!(report.frame_size(), 1);
+        assert_eq!(decoder.dest()[0], 0x77);
     }
 }

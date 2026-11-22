@@ -98,21 +98,46 @@ pub struct CobsEncoder<'a> {
     dest_idx: usize,
     state: EncoderState,
     might_be_done: bool,
+    failed: bool,
 }
 
 impl<'a> CobsEncoder<'a> {
     /// Create a new streaming Cobs Encoder.
+    ///
+    /// `out_buf` should not be an empty slice. Doing so will not panic, but
+    /// every call to `push` will fail, and `finalize()` will return `0`.
     pub fn new(out_buf: &'a mut [u8]) -> CobsEncoder<'a> {
         CobsEncoder {
-            dest: out_buf,
             dest_idx: 1,
             state: EncoderState::default(),
             might_be_done: false,
+            // it was never gunna work.
+            failed: out_buf.is_empty(),
+            dest: out_buf,
         }
     }
 
     /// Push a slice of data to be encoded
+    ///
+    /// If this function returns `Err`, all subsequent calls to `push` will also
+    /// return an `Err`, and [`Self::finalize()`] will always return 0.
     pub fn push(&mut self, data: &[u8]) -> Result<(), DestBufTooSmallError> {
+        // On any failing call to push, fuse the error to avoid misleading output.
+        if self.failed {
+            return Err(DestBufTooSmallError);
+        }
+        let res = self.push_inner(data);
+        self.failed |= res.is_err();
+        res
+    }
+
+    #[inline]
+    fn push_inner(&mut self, data: &[u8]) -> Result<(), DestBufTooSmallError> {
+        // If data is empty, don't update any tracking variables.
+        if data.is_empty() {
+            return Ok(());
+        }
+
         // TODO: could probably check if this would fit without
         // iterating through all data
 
@@ -122,6 +147,8 @@ impl<'a> CobsEncoder<'a> {
             self.dest_idx += 1;
             self.might_be_done = false;
         }
+
+        // Consume the data, byte at a time.
         for (slice_idx, val) in data.iter().enumerate() {
             use PushResult::*;
             match self.state.push(*val) {
@@ -132,18 +159,35 @@ impl<'a> CobsEncoder<'a> {
                         .ok_or(DestBufTooSmallError)? = y;
                 }
                 ModifyFromStartAndSkip((idx, mval)) => {
+                    // Modify from start...
                     *self.dest.get_mut(idx).ok_or(DestBufTooSmallError)? = mval;
+
+                    // ...and skip.
+                    //
+                    // The skip means that we are now making room for the NEXT
+                    // placeholder byte. If we're already at/past the end of
+                    // `dest`, we wouldn't ever be able to write that back, so
+                    // go ahead and bail now.
+                    if self.dest_idx >= self.dest.len() {
+                        return Err(DestBufTooSmallError);
+                    }
                 }
                 ModifyFromStartAndPushAndSkip((idx, mval, nval1)) => {
+                    // Modify from start...
                     *self.dest.get_mut(idx).ok_or(DestBufTooSmallError)? = mval;
+
+                    // ...and push...
                     *self
                         .dest
                         .get_mut(self.dest_idx)
                         .ok_or(DestBufTooSmallError)? = nval1;
+
+                    // ...and (maybe) skip.
                     // Do not increase index if these is the possibility that we are finished.
+                    // We've already checked `data.len()` is non-zero.
                     if slice_idx == data.len() - 1 {
-                        // If push is called again, the index will be incremented. If finalize
-                        // is called, there is no need to increment the index.
+                        // If push (with non-empty data) is called again, the index will be incremented.
+                        // If finalize is called, there is no need to increment the index.
                         self.might_be_done = true;
                     } else {
                         self.dest_idx += 1;
@@ -160,18 +204,33 @@ impl<'a> CobsEncoder<'a> {
 
     /// Complete encoding of the output message. Does NOT terminate the message with the sentinel
     /// value.
+    ///
+    /// An empty message encodes as `[0x01]`. If an empty output buffer is provided in
+    /// [`Self::new()`], that byte cannot be written, and this will return zero.
+    ///
+    /// You should NOT call `finalize` after a call to [`Self::push`] returned an `Err`.
+    /// If you do so, this will return zero.
     pub fn finalize(self) -> usize {
+        if self.failed {
+            return 0;
+        }
         // Get the last index that needs to be fixed
-        let (idx, mval) = if self.dest_idx == 0 {
-            (0, 0x01)
-        } else {
-            self.state.finalize()
-        };
+        let (idx, mval) = self.state.finalize();
 
-        // If the current code index is outside of the destination slice,
-        // we do not need to write it out
-        if let Some(i) = self.dest.get_mut(idx) {
-            *i = mval;
+        // After a final full 254-byte data run, `idx == dest_idx`.
+        // The next run's pending code byte was never counted as output,
+        // so it must not be written either.
+        if idx < self.dest_idx {
+            // If the current code index is outside of the destination slice,
+            // we cannot write it out. This ONLY occurs if `self.dest` was empty,
+            // OR if a call to `Self::push` failed, both of which should be caught
+            // by `self.failed`. However, just in case, report `0` if we can't
+            // record the final fix.
+            if let Some(i) = self.dest.get_mut(idx) {
+                *i = mval;
+            } else {
+                return 0;
+            }
         }
 
         self.dest_idx
@@ -258,7 +317,7 @@ pub fn try_encode_including_sentinels(
     let mut enc = CobsEncoder::new(&mut dest[1..]);
     enc.push(source)?;
     let encoded_len = enc.finalize();
-    dest[encoded_len + 1] = 0;
+    *dest.get_mut(encoded_len + 1).ok_or(DestBufTooSmallError)? = 0;
     Ok(encoded_len + 2)
 }
 
@@ -299,7 +358,7 @@ pub fn encode_vec(source: &[u8]) -> alloc::vec::Vec<u8> {
 pub fn encode_vec_including_sentinels(source: &[u8]) -> alloc::vec::Vec<u8> {
     let mut encoded = alloc::vec![0; crate::max_encoding_length(source.len()) + 2];
     let encoded_len = encode_including_sentinels(source, &mut encoded);
-    encoded.truncate(encoded_len + 2);
+    encoded.truncate(encoded_len);
     encoded
 }
 
@@ -410,10 +469,150 @@ mod tests {
     }
 
     #[test]
+    fn encode_trailing_zero_one_byte_short() {
+        // `[1, 0]` encodes to `[2, 1, 1]`; the final code byte must fit too.
+        let mut dest = [0xEEu8; 2];
+        assert_eq!(try_encode(&[1, 0], &mut dest), Err(DestBufTooSmallError));
+        let mut dest = [0xEEu8; 3];
+        assert_eq!(try_encode(&[1, 0], &mut dest), Ok(3));
+        assert_eq!(dest, [2, 1, 1]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn encode_trailing_zero_one_byte_short_panicking() {
+        encode(&[1, 0], &mut [0u8; 2]);
+    }
+
+    #[test]
+    fn encode_full_run_no_write_past_len() {
+        // 254 non-zero bytes encode to `[0xFF, <254 bytes>]`, ensure subsequent
+        // bytes are not modified
+        for len in [254, 508] {
+            let source = [0x11u8; 508];
+            let mut dest = [0xEEu8; 520];
+            let used = try_encode(&source[..len], &mut dest).unwrap();
+            assert_eq!(used, len + len / 254);
+            assert!(dest[used..].iter().all(|b| *b == 0xEE), "len={len}");
+        }
+    }
+
+    #[test]
+    fn try_encode_with_sentinels_one_byte_short() {
+        // `[1]` encodes to `[0, 2, 1, 0]` with sentinels; no room for the last 0.
+        let mut dest = [0xEEu8; 3];
+        assert_eq!(
+            try_encode_including_sentinels(&[1], &mut dest),
+            Err(DestBufTooSmallError)
+        );
+        let mut dest = [0xEEu8; 4];
+        assert_eq!(try_encode_including_sentinels(&[1], &mut dest), Ok(4));
+        assert_eq!(dest, [0, 2, 1, 0]);
+    }
+
+    #[test]
     #[should_panic]
     fn encode_target_buf_too_small_panicking() {
         let source = &[10, 11, 0, 12];
         let expected = &[3, 10, 11, 2, 12];
         encode(source, &mut [0u8; 5][..expected.len() - 1]);
+    }
+
+    #[test]
+    fn encode_empty_into_empty_dest() {
+        // An empty message encodes to `[0x01]`, which doesn't fit in zero bytes.
+        assert_eq!(try_encode(&[], &mut []), Err(DestBufTooSmallError));
+        let mut dest = [0xEEu8; 1];
+        assert_eq!(try_encode(&[], &mut dest), Ok(1));
+        assert_eq!(dest, [0x01]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn encode_empty_into_empty_dest_panicking() {
+        encode(&[], &mut []);
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn encode_vec_including_sentinels_exact_len() {
+        // This input encodes to less than `max_encoding_length`, so the buffer must be
+        // truncated right after the closing sentinel.
+        let mut source = [0x11u8; 255];
+        source[0] = 0;
+        let encoded = encode_vec_including_sentinels(&source);
+        assert_eq!(encoded.len(), encode_vec(&source).len() + 2);
+        assert_eq!(encoded[1..encoded.len() - 1], encode_vec(&source));
+    }
+
+    #[test]
+    fn empty_push_is_fine() {
+        let mut dest = [0xEEu8; 255];
+        let source = [0x11; 254];
+
+        let mut enc = CobsEncoder::new(&mut dest);
+        assert_eq!(enc.push(&source), Ok(()));
+        assert_eq!(enc.finalize(), 255);
+
+        // The presence of an empty push should not trigger us to process a
+        // deferred "add a placeholder" case, we wait until the first real data
+        // is pushed to do that.
+        let mut enc = CobsEncoder::new(&mut dest);
+        assert_eq!(enc.push(&source), Ok(()));
+        assert_eq!(enc.push(&[]), Ok(()));
+        assert_eq!(enc.finalize(), 255);
+    }
+
+    #[test]
+    fn empty_push_keeps_deferred_code_byte() {
+        // After a full run, the next run's code byte is still counted when the first
+        // real data arrives, even with empty pushes in between.
+        let source = [0x11; 255];
+        let mut expected = [0x11; 257];
+        expected[0] = 0xFF;
+        expected[255] = 0x02;
+
+        let mut dest = [0xEEu8; 257];
+        let mut enc = CobsEncoder::new(&mut dest);
+        assert_eq!(enc.push(&source[..254]), Ok(()));
+        assert_eq!(enc.push(&[]), Ok(()));
+        assert_eq!(enc.push(&[]), Ok(()));
+        assert_eq!(enc.push(&source[254..]), Ok(()));
+        assert_eq!(enc.finalize(), 257);
+        assert_eq!(dest, expected);
+
+        let mut decoded = [0u8; 257];
+        let n = crate::decode(&dest, &mut decoded).unwrap().frame_size();
+        assert_eq!(decoded[..n], source);
+    }
+
+    #[test]
+    fn push_after_err_fails() {
+        // Once a push fails, every later push fails too, even an empty one.
+        let mut dest = [0u8; 4];
+        let mut enc = CobsEncoder::new(&mut dest);
+        assert_eq!(enc.push(&[1, 2, 3, 4, 5]), Err(DestBufTooSmallError));
+        assert_eq!(enc.push(&[]), Err(DestBufTooSmallError));
+        assert_eq!(enc.push(&[0]), Err(DestBufTooSmallError));
+        assert_eq!(enc.finalize(), 0);
+
+        // The same goes for an empty destination.
+        let mut enc = CobsEncoder::new(&mut []);
+        assert_eq!(enc.push(&[]), Err(DestBufTooSmallError));
+        assert_eq!(enc.finalize(), 0);
+    }
+
+    #[test]
+    fn empty_dest_finalizes_zero() {
+        let enc = CobsEncoder::new(&mut []);
+        assert_eq!(enc.finalize(), 0);
+    }
+
+    #[test]
+    fn err_push_finalizes_zero() {
+        let mut dest = [0u8; 4];
+        let mut enc = CobsEncoder::new(&mut dest);
+        assert_eq!(enc.push(&[1, 2, 3, 4, 5]), Err(DestBufTooSmallError));
+        assert_eq!(enc.finalize(), 0);
     }
 }

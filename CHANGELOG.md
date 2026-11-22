@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 # [unreleased]
 
+## Fixed
+
+- `try_encode`, `encode` and `CobsEncoder::push` now report an error (or panic, for
+  `encode`) when the input ends in `0x00` and the destination is one byte too short.
+- `try_encode`, `encode` and `CobsEncoder::finalize` no longer write a stray `0x01` one
+  byte past the returned length when the input ends with a full 254-byte run.
+- `try_encode_including_sentinels` returns an error instead of panicking when there is no
+  room for the closing sentinel.
+- `try_encode` now reports an error and `encode` panics when encoding an empty message into an
+  empty destination. Previously they returned 1 without writing anything.
+- `CobsEncoder::finalize` will now always return 0 with an empty destination, or if `push` ever
+  returns an `Err`.
+- A `CobsEncoder::push(&[])` after a full 254-byte data run no longer returns a one-byte-too-long
+  length on `finalize()`.
+- `decode_with_sentinel` no longer decodes stale bytes left in `dest` past an unterminated frame,
+  and returns `TargetBufTooSmall` instead of silently truncating when `dest` is shorter than the
+  frame, excluding the sentinel. `decode_in_place_with_sentinel` no longer XORs bytes after
+  the first frame.
+- The streaming decoders no longer report a message that overflowed the destination buffer.
+  They now drop the rest of that frame up to its terminator.
+- `encode_vec_including_sentinels` no longer returns extra `0x00` bytes after the closing
+  sentinel when the message encodes to less than its maximum length.
+
 # [v0.5.1] 2026-03-03
 
 ## Changed

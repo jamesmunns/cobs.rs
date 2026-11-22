@@ -457,6 +457,12 @@ impl CobsDecoderOwned {
 /// Decodes the `source` buffer into the `dest` buffer.
 ///
 /// This function uses the typical sentinel value of 0.
+///
+/// If the message is **not** followed by the sentinel, the end of `source` is treated as the
+/// end of the message.
+///
+/// For correct messages, this is fine, however a truncated message without a sentinel may
+/// still decode successfully to a shorter message.
 pub fn decode(source: &[u8], dest: &mut [u8]) -> Result<DecodeReport, DecodeError> {
     if source.is_empty() {
         return Err(DecodeError::EmptyFrame);
@@ -516,6 +522,9 @@ impl DecodeReport {
 /// This is the same function as [decode_in_place], but provides a report
 /// of both the number of source bytes consumed as well as the size of the
 /// destination used.
+///
+/// The sentinel is optional (but recommended), without it truncation may go undetected.
+/// See [`decode`] for more details.
 pub fn decode_in_place_report(buf: &mut [u8]) -> Result<DecodeReport, DecodeError> {
     let mut source_index = 0;
     let mut dest_index = 0;
@@ -569,8 +578,19 @@ pub fn decode_in_place_report(buf: &mut [u8]) -> Result<DecodeReport, DecodeErro
 ///
 /// The returned `usize` is the number of bytes used for the DECODED value,
 /// NOT the number of source bytes consumed during decoding.
+///
+/// The sentinel is optional (but recommended), without it truncation may go undetected.
+/// See [`decode`] for more details.
 pub fn decode_in_place(buff: &mut [u8]) -> Result<usize, DecodeError> {
     decode_in_place_report(buff).map(|res| res.frame_size())
+}
+
+/// The length of the first frame in `buf`: up to and including the first `sentinel`
+/// byte, or all of `buf` if there is none.
+fn frame_end(buf: &[u8], sentinel: u8) -> usize {
+    buf.iter()
+        .position(|b| *b == sentinel)
+        .map_or(buf.len(), |i| i + 1)
 }
 
 /// Decodes the `source` buffer into the `dest` buffer using an arbitrary sentinel value.
@@ -581,11 +601,30 @@ pub fn decode_in_place(buff: &mut [u8]) -> Result<usize, DecodeError> {
 ///
 /// The returned `usize` is the number of bytes used for the DECODED value,
 /// NOT the number of source bytes consumed during decoding.
+///
+/// `dest` is used to hold the encoded message while decoding, so it must be at least as
+/// long as the first frame in `source`, not counting its sentinel. Otherwise,
+/// [`DecodeError::TargetBufTooSmall`] is returned.
+///
+/// The sentinel is optional (but recommended), without it truncation may go undetected.
+/// See [`decode`] for more details.
 pub fn decode_with_sentinel(
     source: &[u8],
     dest: &mut [u8],
     sentinel: u8,
 ) -> Result<usize, DecodeError> {
+    // Copy only the frame (up to and including the first sentinel), so bytes
+    // already in `dest` past it are never decoded/modified.
+    let len = frame_end(source, sentinel);
+    let source = &source[..len];
+
+    // The sentinel is optional, allow a case where it doesn't fit in dest
+    let unterminated = source.strip_suffix(&[sentinel]).unwrap_or(source);
+    if dest.len() < unterminated.len() {
+        return Err(DecodeError::TargetBufTooSmall);
+    }
+    let len = len.min(dest.len());
+    let dest = &mut dest[..len];
     for (x, y) in source.iter().zip(dest.iter_mut()) {
         *y = *x ^ sentinel;
     }
@@ -596,7 +635,14 @@ pub fn decode_with_sentinel(
 ///
 /// The returned `usize` is the number of bytes used for the DECODED value,
 /// NOT the number of source bytes consumed during decoding.
+///
+/// The sentinel is optional (but recommended), without it truncation may go undetected.
+/// See [`decode`] for more details.
 pub fn decode_in_place_with_sentinel(buff: &mut [u8], sentinel: u8) -> Result<usize, DecodeError> {
+    // Transform only the first frame, so any bytes after it
+    // (such as following frames) are left as they were.
+    let len = frame_end(buff, sentinel);
+    let buff = &mut buff[..len];
     for x in buff.iter_mut() {
         *x ^= sentinel;
     }
@@ -605,6 +651,9 @@ pub fn decode_in_place_with_sentinel(buff: &mut [u8], sentinel: u8) -> Result<us
 
 #[cfg(feature = "alloc")]
 /// Decodes the `source` buffer into a vector.
+///
+/// The sentinel is optional (but recommended), without it truncation may go undetected.
+/// See [`decode`] for more details.
 pub fn decode_vec(source: &[u8]) -> Result<alloc::vec::Vec<u8>, DecodeError> {
     let mut decoded = alloc::vec![0; source.len()];
     let result = decode(source, &mut decoded[..])?;
@@ -614,6 +663,9 @@ pub fn decode_vec(source: &[u8]) -> Result<alloc::vec::Vec<u8>, DecodeError> {
 
 #[cfg(feature = "alloc")]
 /// Decodes the `source` buffer into a vector with an arbitrary sentinel value.
+///
+/// The sentinel is optional (but recommended), without it truncation may go undetected.
+/// See [`decode`] for more details.
 pub fn decode_vec_with_sentinel(
     source: &[u8],
     sentinel: u8,
@@ -838,5 +890,73 @@ mod tests {
         assert_eq!(report.frame_size(), data.len());
         assert_eq!(&decoder.dest()[0..report.frame_size()], data);
         assert_eq!(&decoder.dest_mut()[0..report.frame_size()], data);
+    }
+
+    #[test]
+    fn decode_with_sentinel_ignores_stale_dest() {
+        // `[02 11]` is an unterminated frame for `[11]`. Bytes already in `dest` past it
+        // must not be modified.
+        let mut dest = [0xEE, 0xEE, 0xEE, 0xEE, 0xEE];
+        let n = decode_with_sentinel(&[0x02, 0x11], &mut dest, 0x00).unwrap();
+        assert_eq!(&dest[..n], &[0x11]);
+        assert_eq!(&dest[2..], &[0xEE, 0xEE, 0xEE]);
+
+        let mut frame = [0u8; 8];
+        let len = crate::encode_with_sentinel(&[0x11, 0x00, 0x22], &mut frame, 0xAA);
+        let mut dest = [0x02, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99];
+        let n = decode_with_sentinel(&frame[..len], &mut dest, 0xAA).unwrap();
+        assert_eq!(&dest[..n], &[0x11, 0x00, 0x22]);
+
+        // A destination too short for the frame is an error
+        assert_eq!(
+            decode_with_sentinel(&frame[..len], &mut [0u8; 2], 0xAA),
+            Err(DecodeError::TargetBufTooSmall)
+        );
+    }
+
+    #[test]
+    fn decode_with_sentinel_needs_no_room_for_sentinel() {
+        // `[02 11]` plus the sentinel, into a buffer:
+        //
+        // 1. with room for the msg + sentinel
+        // 2. with room for the msg but NOT the sentinel
+        // 3. not enough room for either
+        for sentinel in [0x00, 0xAA] {
+            let source = [0x02, 0x11, 0x00].map(|b: u8| b ^ sentinel);
+            for dest_len in [2, 3] {
+                let mut dest = [0xEE; 3];
+                let n = decode_with_sentinel(&source, &mut dest[..dest_len], sentinel).unwrap();
+                assert_eq!(&dest[..n], &[0x11]);
+            }
+            assert_eq!(
+                decode_with_sentinel(&source, &mut [0u8; 1], sentinel),
+                Err(DecodeError::TargetBufTooSmall)
+            );
+
+            // Without a sentinel, the last byte is part of the frame and must fit.
+            let source = [0x02, 0x11, 0x01].map(|b: u8| b ^ sentinel);
+            assert_eq!(
+                decode_with_sentinel(&source, &mut [0u8; 2], sentinel),
+                Err(DecodeError::TargetBufTooSmall)
+            );
+        }
+    }
+
+    #[test]
+    fn decode_in_place_with_sentinel_leaves_next_frame() {
+        // Two `0xAA`-terminated frames back to back, decoding the first must not change
+        // the second.
+        let mut buf = [0u8; 16];
+        let a = crate::encode_with_sentinel(&[0x11], &mut buf, 0xAA);
+        buf[a] = 0xAA;
+        let b = crate::encode_with_sentinel(&[0x22], &mut buf[a + 1..], 0xAA);
+        buf[a + 1 + b] = 0xAA;
+        let end = a + b + 2;
+        let second = buf[a + 1..end].to_vec();
+        let n = decode_in_place_with_sentinel(&mut buf[..end], 0xAA).unwrap();
+        assert_eq!(&buf[..n], &[0x11]);
+        assert_eq!(&buf[a + 1..end], &second[..]);
+        let n = decode_in_place_with_sentinel(&mut buf[a + 1..end], 0xAA).unwrap();
+        assert_eq!(&buf[a + 1..a + 1 + n], &[0x22]);
     }
 }
